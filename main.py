@@ -16,9 +16,9 @@ from typing import Any, cast, TYPE_CHECKING
 
 import numpy as np
 
-from config import default_params, safe_float, fmt_num
+from config import default_params, safe_float, fmt_num, normalize_params_dict
 from solver import NdSb3TM
-from data_io import load_csv_auto, fit_params
+from data_io import load_csv_auto, fit_params, normalize_fit_keys
 
 # ============================================================
 # GUI availability
@@ -62,7 +62,22 @@ from matplotlib.figure import Figure
 if GUI_AVAILABLE:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from gui_component import ScrollableFrame
+from gui_component import ScrollableFrame, PARAMETER_FORM_SPECS
+
+
+FIT_PRESETS = {
+    "Te": ["G_el0", "G_es0", "S_scale", "t0_pulse"],
+    "S": ["tau_m0", "tau_m_crit_amp", "nu", "S_offset", "S_amp", "S_power", "t0_pulse"],
+    "Both": [
+        "G_el0", "G_es0", "G_sl0",
+        "G_es_m_power",
+        "G_sl_TR_boost", "G_sl_TN_boost",
+        "tau_l_sink", "S_scale",
+        "tau_m0", "tau_m_crit_amp", "nu",
+        "S_offset", "S_amp", "S_power",
+        "t0_pulse",
+    ],
+}
 
 
 # ============================================================
@@ -75,7 +90,7 @@ if GUI_AVAILABLE:
             self.title("NdSb effective nonequilibrium model — simulate + fit")
             self.geometry("1460x900")
 
-            self.p = default_params()
+            self.p = normalize_params_dict(default_params())
             self.p_fit = None
             self.fit_res = None
             self.current_view = "p"
@@ -137,6 +152,7 @@ if GUI_AVAILABLE:
             sf_adv.pack(fill="both", expand=True)
 
             self.entries: dict[str, Any] = {}
+            self.entry_specs: dict[str, Any] = {}
 
             def add_entry(parent, key, label, width_label=34, width_entry=22):
                 row = ttk.Frame(parent)
@@ -151,105 +167,21 @@ if GUI_AVAILABLE:
                 ttk.Separator(parent).pack(fill="x", pady=(8, 6))
                 ttk.Label(parent, text=title, font=("Segoe UI", 10, "bold")).pack(anchor="w")
 
-            # ---------------- BASIC ----------------
-            add_section(sf_basic.interior, "Pump")
-            add_entry(sf_basic.interior, "fluence_multiplier", "Fluence multiplier")
-            add_entry(sf_basic.interior, "delta_opt", "Optical depth δ (m)")
-            add_entry(sf_basic.interior, "pulse_width", "Pulse FWHM (s)")
-            add_entry(sf_basic.interior, "t0_pulse", "Pulse center t0 (s)")
-            add_entry(sf_basic.interior, "S_scale", "Absorption scale S_scale")
-
-            add_section(sf_basic.interior, "Effective transfer channels")
-            add_entry(sf_basic.interior, "G_el0", "G_e-l base (hot e → lattice)")
-            add_entry(sf_basic.interior, "G_es0", "G_e-s exch base (5d/6s ↔ 4f)")
-            add_entry(sf_basic.interior, "G_sl0", "G_s-l base (spin/order ↔ lattice)")
-            add_entry(sf_basic.interior, "G_es_floor_frac", "G_es floor fraction")
-            add_entry(sf_basic.interior, "G_es_m_power", "G_es m-power")
-            add_entry(sf_basic.interior, "G_sl_TR_boost", "G_sl boost near T_R")
-            add_entry(sf_basic.interior, "G_sl_TN_boost", "G_sl boost near T_N")
-
-            add_section(sf_basic.interior, "Bath coupling / sinks")
-            add_entry(sf_basic.interior, "tau_e_sink", "τ_e_sink (s)")
-            add_entry(sf_basic.interior, "tau_s_sink", "τ_s_sink (s)")
-            add_entry(sf_basic.interior, "tau_l_sink", "τ_l_sink (s)")
-
-            add_section(sf_basic.interior, "Thermodynamics / electrons")
-            add_entry(sf_basic.interior, "TN", "T_N (K)")
-            add_entry(sf_basic.interior, "TR", "T_R (K)")
-            add_entry(sf_basic.interior, "ThetaD", "Θ_D (K)")
-            add_entry(sf_basic.interior, "gamma_PM_molar", "γ_PM (J/mol/K^2)")
-            add_entry(sf_basic.interior, "alpha_gap", "α_gap")
-            add_entry(sf_basic.interior, "gap0_meV", "Δ0 (meV)")
-            add_entry(sf_basic.interior, "gap_eta_coupling", "gap-eta coupling")
-
-            add_section(sf_basic.interior, "Spin heat capacity")
-            add_entry(sf_basic.interior, "sw_model", "C_sw model (magnon/AT3)")
-            add_entry(sf_basic.interior, "Cs_scale", "Cs scale")
-
-            # ---------------- SPIN / MAGNON ----------------
-            add_section(sf_spin.interior, "J1/J2 renormalization")
-            add_entry(sf_spin.interior, "J1_old_K", "J1 old (K)")
-            add_entry(sf_spin.interior, "J2_old_K", "J2 old (K)")
-            add_entry(sf_spin.interior, "J_renorm", "J renorm")
-            add_entry(sf_spin.interior, "J_2q_scale", "J extra scale (T<TR)")
-            add_entry(sf_spin.interior, "J_1q_scale", "J extra scale (TR<T<TN)")
-
-            add_section(sf_spin.interior, "Magnon integration (LSWT)")
-            add_entry(sf_spin.interior, "S_eff", "S_eff")
-            add_entry(sf_spin.interior, "mag_gap_meV", "Magnon gap / cutoff (meV)")
-            add_entry(sf_spin.interior, "magnon_grid", "Magnon grid N (8–80)")
-
-            add_section(sf_spin.interior, "Legacy fallback (AT^3)")
-            add_entry(sf_spin.interior, "A_sw_2q", "A_sw (T<TR) (J/mol/K^4)")
-            add_entry(sf_spin.interior, "A_sw_1q", "A_sw (TR<T<TN) (J/mol/K^4)")
-
-            # ---------------- ETA ----------------
-            add_section(sf_eta.interior, "Eta switches / interpretation")
-            add_entry(sf_eta.interior, "eta_enable", "eta_enable (0/1)")
-            add_entry(sf_eta.interior, "eta_mode", "eta_mode (second/first)")
-            add_entry(sf_eta.interior, "eta_sign", "eta_sign (+1/-1)")
-            add_entry(sf_eta.interior, "eta_clip", "eta_clip")
-
-            add_section(sf_eta.interior, "Eta kinetics")
-            add_entry(sf_eta.interior, "Gamma_eta", "Gamma_eta (1/s)")
-            add_entry(sf_eta.interior, "Gamma_eta_low_frac", "Gamma_eta_low_frac")
-            add_entry(sf_eta.interior, "eta_dT", "eta_dT (K)")
-
-            add_section(sf_eta.interior, "Eta Landau coefficients")
-            add_entry(sf_eta.interior, "a_eta0", "a_eta0")
-            add_entry(sf_eta.interior, "b_eta", "b_eta")
-            add_entry(sf_eta.interior, "c_eta", "c_eta (first-order only)")
-            add_entry(sf_eta.interior, "g_m2eta2", "g_m2eta2")
-
-            # ---------------- ADVANCED ----------------
-            add_section(sf_adv.interior, "Effective-coupling shaping")
-            add_entry(sf_adv.interior, "G_el_Tpow", "G_el temperature power")
-            add_entry(sf_adv.interior, "G_es_eta_coupling", "G_es eta coupling")
-            add_entry(sf_adv.interior, "G_sl_TR_w", "G_sl width near T_R (K)")
-            add_entry(sf_adv.interior, "G_sl_TN_w", "G_sl width near T_N (K)")
-            add_entry(sf_adv.interior, "G_sl_eta_coupling", "G_sl eta coupling")
-
-            add_section(sf_adv.interior, "Heat-capacity features")
-            add_entry(sf_adv.interior, "lambda_amp", "λ-peak amp (J/mol/K)")
-            add_entry(sf_adv.interior, "lambda_w", "λ-peak width (K)")
-            add_entry(sf_adv.interior, "latent_amp", "TR bump amp (J/mol/K)")
-            add_entry(sf_adv.interior, "latent_w", "TR bump width (K)")
-
-            add_section(sf_adv.interior, "CEF (Schottky)")
-            add_entry(sf_adv.interior, "cef_E1_meV", "CEF E1 (meV)")
-            add_entry(sf_adv.interior, "cef_E2_meV", "CEF E2 (meV)")
-
-            add_section(sf_adv.interior, "Order parameter dynamics")
-            add_entry(sf_adv.interior, "tau_m0", "τ_m0 (s)")
-            add_entry(sf_adv.interior, "tau_m_crit_amp", "τ_m crit amp (s)")
-            add_entry(sf_adv.interior, "nu", "ν")
-            add_entry(sf_adv.interior, "eps_crit", "ε_crit")
-            add_entry(sf_adv.interior, "tau_m_max", "τ_m max (s)")
-
-            add_section(sf_adv.interior, "ARPES proxy: S(t)=offset + amp*m^power")
-            add_entry(sf_adv.interior, "S_offset", "S_offset")
-            add_entry(sf_adv.interior, "S_amp", "S_amp")
-            add_entry(sf_adv.interior, "S_power", "S_power")
+            tab_map = {
+                "Basic": sf_basic.interior,
+                "Spin / Magnon": sf_spin.interior,
+                "Eta": sf_eta.interior,
+                "Advanced": sf_adv.interior,
+            }
+            last_group_by_tab: dict[str, str | None] = {key: None for key in tab_map}
+            for spec in PARAMETER_FORM_SPECS:
+                parent = tab_map[spec.tab]
+                if last_group_by_tab[spec.tab] != spec.group:
+                    add_section(parent, spec.group)
+                    last_group_by_tab[spec.tab] = spec.group
+                label = spec.label if not spec.note else f"{spec.label} [{spec.note}]"
+                ent = add_entry(parent, spec.key, label)
+                self.entry_specs[spec.key] = spec
 
             # ---------------- Simulation controls ----------------
             ctrl = ttk.Frame(left)
@@ -327,17 +259,20 @@ if GUI_AVAILABLE:
             return self.p
 
         def _read_entries_to_params(self):
-            target = self._current_params_dict()
+            target = dict(self._current_params_dict())
             for k, ent in self.entries.items():
                 s = ent.get().strip()
                 if s == "":
                     continue
 
-                if k in ["sw_model", "eta_mode"]:
+                spec = self.entry_specs.get(k)
+                value_type = getattr(spec, "value_type", "float")
+
+                if value_type == "str":
                     target[k] = s
                     continue
 
-                if k in ["magnon_grid", "eta_enable", "eta_sign"]:
+                if value_type == "int":
                     try:
                         target[k] = int(round(float(s)))
                     except Exception:
@@ -356,20 +291,17 @@ if GUI_AVAILABLE:
                     except Exception:
                         pass
 
-            # backward compatibility aliases
-            if "G_el0" in target:
-                target["G_el"] = target["G_el0"]
-            if "G_es0" in target:
-                target["G_es"] = target["G_es0"]
-            if "G_sl0" in target:
-                target["G_sl"] = target["G_sl0"]
+            target = normalize_params_dict(target)
 
             if self.current_view == "p_fit":
                 self.p_fit = dict(target)
+            else:
+                self.p = dict(target)
 
         def _refresh_entries_from_params(self, p_dict, view: str):
             self.current_view = view
             self._set_view_label()
+            p_dict = normalize_params_dict(p_dict)
             for k, ent in self.entries.items():
                 ent.delete(0, "end")
                 if k in p_dict:
@@ -512,9 +444,9 @@ if GUI_AVAILABLE:
             try:
                 self._read_entries_to_params()
                 t = self._time_grid()
-                params_used = dict(self._current_params_dict())
+                params_used = normalize_params_dict(self._current_params_dict())
                 model = NdSb3TM(params_used)
-                sim = model.simulate_aligned(t)
+                sim = model.simulate_aligned(t, with_diag=True)
                 self._plot_sim(sim, params_used)
 
                 self._log(
@@ -592,34 +524,18 @@ if GUI_AVAILABLE:
                 messagebox.showwarning("Missing", "Need both Te and S columns for Fit Te+S.")
                 return
 
+            fit_keys = normalize_fit_keys(FIT_PRESETS[mode])
+
             if mode == "Te":
-                fit_keys = [
-                    "G_el0", "G_es0",
-                    "S_scale", "t0_pulse"
-                ]
                 Te_fit, S_fit = Te, None
 
             elif mode == "S":
-                fit_keys = [
-                    "tau_m0", "tau_m_crit_amp", "nu",
-                    "S_offset", "S_amp", "S_power",
-                    "t0_pulse"
-                ]
                 Te_fit, S_fit = None, S
 
             else:
-                fit_keys = [
-                    "G_el0", "G_es0", "G_sl0",
-                    "G_es_m_power",
-                    "G_sl_TR_boost", "G_sl_TN_boost",
-                    "tau_l_sink", "S_scale",
-                    "tau_m0", "tau_m_crit_amp", "nu",
-                    "S_offset", "S_amp", "S_power",
-                    "t0_pulse"
-                ]
                 Te_fit, S_fit = Te, S
 
-            p_start = dict(self._current_params_dict())
+            p_start = normalize_params_dict(self._current_params_dict())
 
             try:
                 self._log(f"[fit-{mode}] keys={fit_keys}")
@@ -636,7 +552,7 @@ if GUI_AVAILABLE:
 
                 t_sim = self._time_grid()
                 model = NdSb3TM(self.p_fit)
-                sim = model.simulate_aligned(t_sim)
+                sim = model.simulate_aligned(t_sim, with_diag=True)
                 self._plot_sim(sim, self.p_fit)
 
                 self._log(
@@ -663,7 +579,7 @@ def _cli_demo():
     p = default_params()
     model = NdSb3TM(p)
     t = np.linspace(-2e-12, 100e-12, 1200)
-    sim = model.simulate_aligned(t)
+    sim = model.simulate_aligned(t, with_diag=False)
     print("GUI not available (tkinter missing). Headless demo:")
     print("  max Te =", float(np.max(sim["Te"])))
     print("  max Ts =", float(np.max(sim["Ts"])))

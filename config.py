@@ -6,8 +6,14 @@ Constants, material parameters, default_params(), and small utilities.
 Split out from ndsb_3tm_gui_magnon_compact.py.
 """
 from __future__ import annotations
-import math
 import numpy as np
+
+
+LEGACY_PARAM_ALIASES = {
+    "G_el": "G_el0",
+    "G_es": "G_es0",
+    "G_sl": "G_sl0",
+}
 
 # ============================================================
 # Constants
@@ -94,18 +100,13 @@ def default_params() -> dict:
     #   G_es0 : exchange-mediated electron -> spin-sector auxiliary channel
     #   G_sl0 : spin/order <-> lattice main relaxation channel
     #
-    # Old keys G_el/G_es/G_sl are retained as backward-compatible fallbacks.
+    # Legacy aliases are normalized at input boundaries via normalize_params_dict().
     # ========================================================
 
     # ---- base couplings ----
     p["G_el0"] = 5.0e13
     p["G_es0"] = 1.0e16
     p["G_sl0"] = 3.0e14
-
-    # ---- backward compatibility ----
-    p["G_el"] = p["G_el0"]
-    p["G_es"] = p["G_es0"]
-    p["G_sl"] = p["G_sl0"]
 
     # ---- optional temperature dependence for e-l channel ----
     # currently unused in solver first pass, but reserved
@@ -200,6 +201,24 @@ def default_params() -> dict:
 # ============================================================
 def clipT(T: float, Tmin: float = 1e-6, Tmax: float = 8e4) -> float:
     return float(np.clip(float(T), Tmin, Tmax))
+
+
+def normalize_params_dict(params: dict | None) -> dict:
+    """
+    Normalize user/input parameter dictionaries so downstream code can rely on
+    canonical internal keys only.
+
+    Canonical effective-coupling keys:
+        G_el0, G_es0, G_sl0
+
+    Legacy aliases:
+        G_el, G_es, G_sl
+    """
+    normalized = {} if params is None else dict(params)
+    for legacy_key, canonical_key in LEGACY_PARAM_ALIASES.items():
+        if canonical_key not in normalized and legacy_key in normalized:
+            normalized[canonical_key] = normalized[legacy_key]
+    return normalized
 
 
 def safe_float(x, default):
