@@ -450,6 +450,15 @@ if GUI_AVAILABLE:
                 self._plot_sim(sim, params_used)
 
                 self._log(
+                    f"[init] T_bath={sim['T_bath']:.2f} K | "
+                    f"T_init_eff_used={sim['T_init_eff_used']:.2f} K"
+                    + (
+                        f" | P_avg_preheat={sim['P_avg_preheat']:.3e} W/m^3"
+                        if "P_avg_preheat" in sim else ""
+                    )
+                )
+
+                self._log(
                     f"[sim:{self.current_view}] max Te={np.max(sim['Te']):.2f} K | "
                     f"max Ts={np.max(sim['Ts']):.2f} K | max Tl={np.max(sim['Tl']):.2f} K | "
                     f"final m={sim['m'][-1]:.3f} | final eta={sim['eta'][-1]:.3f}"
@@ -581,6 +590,10 @@ def _cli_demo():
     t = np.linspace(-2e-12, 100e-12, 1200)
     sim = model.simulate_aligned(t, with_diag=False)
     print("GUI not available (tkinter missing). Headless demo:")
+    print("  T_bath =", float(sim["T_bath"]))
+    print("  T_init_eff_used =", float(sim["T_init_eff_used"]))
+    if "P_avg_preheat" in sim:
+        print("  P_avg_preheat =", float(sim["P_avg_preheat"]))
     print("  max Te =", float(np.max(sim["Te"])))
     print("  max Ts =", float(np.max(sim["Ts"])))
     print("  max Tl =", float(np.max(sim["Tl"])))
