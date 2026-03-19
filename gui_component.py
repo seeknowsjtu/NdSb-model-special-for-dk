@@ -7,6 +7,7 @@ A scrollable ttk.Frame used by the GUI.
 Split out from ndsb_3tm_gui_magnon_compact.py.
 """
 from __future__ import annotations
+from dataclasses import dataclass
 
 try:
     import tkinter as tk
@@ -14,6 +15,84 @@ try:
 except Exception:  # pragma: no cover
     tk = None
     ttk = None
+
+
+@dataclass(frozen=True)
+class ParameterSpec:
+    tab: str
+    group: str
+    key: str
+    label: str
+    value_type: str = "float"
+    note: str = ""
+
+
+PARAMETER_FORM_SPECS = (
+    ParameterSpec("Basic", "Pump", "fluence_multiplier", "Fluence multiplier"),
+    ParameterSpec("Basic", "Pump", "delta_opt", "Optical depth δ (m)"),
+    ParameterSpec("Basic", "Pump", "pulse_width", "Pulse FWHM (s)"),
+    ParameterSpec("Basic", "Pump", "t0_pulse", "Pulse center t0 (s)"),
+    ParameterSpec("Basic", "Pump", "S_scale", "Absorption scale S_scale"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_el0", "G_e-l base (hot e → lattice)"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_es0", "G_e-s exch base (5d/6s ↔ 4f)"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_sl0", "G_s-l base (spin/order ↔ lattice)"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_es_floor_frac", "G_es floor fraction"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_es_m_power", "G_es m-power"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_sl_TR_boost", "G_sl boost near T_R"),
+    ParameterSpec("Basic", "Effective transfer channels", "G_sl_TN_boost", "G_sl boost near T_N"),
+    ParameterSpec("Basic", "Bath coupling / sinks", "tau_e_sink", "τ_e_sink (s)"),
+    ParameterSpec("Basic", "Bath coupling / sinks", "tau_s_sink", "τ_s_sink (s)"),
+    ParameterSpec("Basic", "Bath coupling / sinks", "tau_l_sink", "τ_l_sink (s)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "TN", "T_N (K)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "TR", "T_R (K)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "ThetaD", "Θ_D (K)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "gamma_PM_molar", "γ_PM (J/mol/K^2)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "alpha_gap", "α_gap"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "gap0_meV", "Δ0 (meV)"),
+    ParameterSpec("Basic", "Thermodynamics / electrons", "gap_eta_coupling", "gap-eta coupling"),
+    ParameterSpec("Basic", "Spin heat capacity", "sw_model", "C_sw model (magnon/AT3)", value_type="str"),
+    ParameterSpec("Basic", "Spin heat capacity", "Cs_scale", "Cs scale"),
+    ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J1_old_K", "J1 old (K)"),
+    ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J2_old_K", "J2 old (K)"),
+    ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J_renorm", "J renorm"),
+    ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J_2q_scale", "J extra scale (T<TR)"),
+    ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J_1q_scale", "J extra scale (TR<T<TN)"),
+    ParameterSpec("Spin / Magnon", "Magnon integration (LSWT)", "S_eff", "S_eff"),
+    ParameterSpec("Spin / Magnon", "Magnon integration (LSWT)", "mag_gap_meV", "Magnon gap / cutoff (meV)"),
+    ParameterSpec("Spin / Magnon", "Magnon integration (LSWT)", "magnon_grid", "Magnon grid N (8–80)", value_type="int"),
+    ParameterSpec("Spin / Magnon", "Legacy fallback (AT^3)", "A_sw_2q", "A_sw (T<TR) (J/mol/K^4)", note="Legacy AT^3 branch"),
+    ParameterSpec("Spin / Magnon", "Legacy fallback (AT^3)", "A_sw_1q", "A_sw (TR<T<TN) (J/mol/K^4)", note="Legacy AT^3 branch"),
+    ParameterSpec("Eta", "Eta switches / interpretation", "eta_enable", "eta_enable (0/1)", value_type="int"),
+    ParameterSpec("Eta", "Eta switches / interpretation", "eta_mode", "eta_mode (second/first)", value_type="str"),
+    ParameterSpec("Eta", "Eta switches / interpretation", "eta_sign", "eta_sign (+1/-1)", value_type="int"),
+    ParameterSpec("Eta", "Eta switches / interpretation", "eta_clip", "eta_clip"),
+    ParameterSpec("Eta", "Eta kinetics", "Gamma_eta", "Gamma_eta (1/s)"),
+    ParameterSpec("Eta", "Eta kinetics", "Gamma_eta_low_frac", "Gamma_eta_low_frac"),
+    ParameterSpec("Eta", "Eta kinetics", "eta_dT", "eta_dT (K)"),
+    ParameterSpec("Eta", "Eta Landau coefficients", "a_eta0", "a_eta0"),
+    ParameterSpec("Eta", "Eta Landau coefficients", "b_eta", "b_eta"),
+    ParameterSpec("Eta", "Eta Landau coefficients", "c_eta", "c_eta (first-order only)"),
+    ParameterSpec("Eta", "Eta Landau coefficients", "g_m2eta2", "g_m2eta2"),
+    ParameterSpec("Advanced", "Effective-coupling shaping", "G_el_Tpow", "G_el temperature power"),
+    ParameterSpec("Advanced", "Effective-coupling shaping", "G_es_eta_coupling", "G_es eta coupling"),
+    ParameterSpec("Advanced", "Effective-coupling shaping", "G_sl_TR_w", "G_sl width near T_R (K)"),
+    ParameterSpec("Advanced", "Effective-coupling shaping", "G_sl_TN_w", "G_sl width near T_N (K)"),
+    ParameterSpec("Advanced", "Effective-coupling shaping", "G_sl_eta_coupling", "G_sl eta coupling"),
+    ParameterSpec("Advanced", "Heat-capacity features", "lambda_amp", "λ-peak amp (J/mol/K)"),
+    ParameterSpec("Advanced", "Heat-capacity features", "lambda_w", "λ-peak width (K)"),
+    ParameterSpec("Advanced", "Heat-capacity features", "latent_amp", "TR bump amp (J/mol/K)"),
+    ParameterSpec("Advanced", "Heat-capacity features", "latent_w", "TR bump width (K)"),
+    ParameterSpec("Advanced", "CEF (Schottky)", "cef_E1_meV", "CEF E1 (meV)"),
+    ParameterSpec("Advanced", "CEF (Schottky)", "cef_E2_meV", "CEF E2 (meV)"),
+    ParameterSpec("Advanced", "Order parameter dynamics", "tau_m0", "τ_m0 (s)"),
+    ParameterSpec("Advanced", "Order parameter dynamics", "tau_m_crit_amp", "τ_m crit amp (s)"),
+    ParameterSpec("Advanced", "Order parameter dynamics", "nu", "ν"),
+    ParameterSpec("Advanced", "Order parameter dynamics", "eps_crit", "ε_crit"),
+    ParameterSpec("Advanced", "Order parameter dynamics", "tau_m_max", "τ_m max (s)"),
+    ParameterSpec("Advanced", "ARPES proxy: S(t)=offset + amp*m^power", "S_offset", "S_offset"),
+    ParameterSpec("Advanced", "ARPES proxy: S(t)=offset + amp*m^power", "S_amp", "S_amp"),
+    ParameterSpec("Advanced", "ARPES proxy: S(t)=offset + amp*m^power", "S_power", "S_power"),
+)
 
 
 class ScrollableFrame(ttk.Frame):  # type: ignore[misc]

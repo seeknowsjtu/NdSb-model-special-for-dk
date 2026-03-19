@@ -15,6 +15,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import least_squares
 
+from config import LEGACY_PARAM_ALIASES, normalize_params_dict
 from physics_engine import DebyeCl
 from solver import NdSb3TM
 
@@ -269,6 +270,15 @@ def _get_bounds_for_keys(keys):
     return np.array(lb, float), np.array(ub, float)
 
 
+def normalize_fit_keys(fit_keys):
+    normalized = []
+    for key in fit_keys:
+        canonical = LEGACY_PARAM_ALIASES.get(key, key)
+        if canonical not in normalized:
+            normalized.append(canonical)
+    return normalized
+
+
 # ============================================================
 # Fitting (bounded least squares)
 # ============================================================
@@ -284,11 +294,13 @@ def fit_params(t, Te, S, p0, fit_keys, sigma_Te=2.0, sigma_S=0.02):
     if Te is None and S is None:
         raise ValueError("Need at least Te or S data to fit.")
 
+    p0 = normalize_params_dict(p0)
+    fit_keys = normalize_fit_keys(fit_keys)
+
     debye_obj = DebyeCl(thetaD=float(p0["ThetaD"]))
 
     POS_KEYS = {
-        # Legacy + new base couplings
-        "G_el", "G_sl", "G_es",
+        # Canonical base couplings
         "G_el0", "G_sl0", "G_es0",
 
         # sinks / time constants
@@ -347,14 +359,6 @@ def fit_params(t, Te, S, p0, fit_keys, sigma_Te=2.0, sigma_S=0.02):
         for kk, xx in zip(keys, x):
             p[kk] = _from_x(kk, xx)
 
-            # Keep legacy aliases synchronized when fitting new keys
-            if kk == "G_el0":
-                p["G_el"] = p[kk]
-            elif kk == "G_es0":
-                p["G_es"] = p[kk]
-            elif kk == "G_sl0":
-                p["G_sl"] = p[kk]
-
     lb_phys, ub_phys = _get_bounds_for_keys(fit_keys)
     lb = np.array([_to_x(k, v) for k, v in zip(fit_keys, lb_phys)], float)
     ub = np.array([_to_x(k, v) for k, v in zip(fit_keys, ub_phys)], float)
@@ -383,7 +387,7 @@ def fit_params(t, Te, S, p0, fit_keys, sigma_Te=2.0, sigma_S=0.02):
         unpack(p, fit_keys, x)
 
         model = NdSb3TM(p, debye_obj=debye_obj)
-        sim = model.simulate_aligned(t)
+        sim = model.simulate_aligned(t, with_diag=False)
 
         r = []
         if Te is not None:

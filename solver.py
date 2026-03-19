@@ -8,7 +8,7 @@ Split out from ndsb_3tm_gui_magnon_compact.py.
 """
 from __future__ import annotations
 import math
-from typing import Optional, Any, Dict
+from typing import Optional, Dict
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -16,6 +16,7 @@ from scipy.integrate import solve_ivp
 from config import (
     kB_meV, n_mol_vol,
     clipT,
+    normalize_params_dict,
 )
 from physics_engine import (
     DebyeCl,
@@ -30,7 +31,7 @@ from physics_engine import (
 
 class NdSb3TM:
     def __init__(self, params: dict, debye_obj: Optional[DebyeCl] = None):
-        self.p = dict(params)
+        self.p = normalize_params_dict(params)
         self.debye = debye_obj if debye_obj is not None else DebyeCl(thetaD=self.p["ThetaD"])
 
         # ---- magnon Cv LUT (optional acceleration) ----
@@ -277,14 +278,14 @@ class NdSb3TM:
         Hot-electron -> lattice main channel.
         First version: keep it simple as a constant base coupling.
         """
-        return float(max(self.p.get("G_el0", self.p.get("G_el", 0.0)), 0.0))
+        return float(max(self.p.get("G_el0", 0.0), 0.0))
 
     def G_es_eff(self, Te: float, Ts: float, Tl: float, m: float, eta: float) -> float:
         """
         Effective exchange-mediated electron -> spin-sector auxiliary channel.
         Interpreted as 5d/6s <-> 4f exchange-assisted transfer.
         """
-        G0 = float(max(self.p.get("G_es0", self.p.get("G_es", 0.0)), 0.0))
+        G0 = float(max(self.p.get("G_es0", 0.0), 0.0))
 
         fac = exchange_scale(
             Ts=Ts,
@@ -305,7 +306,7 @@ class NdSb3TM:
         Main spin/order <-> lattice channel.
         Enhanced near TR and TN.
         """
-        G0 = float(max(self.p.get("G_sl0", self.p.get("G_sl", 0.0)), 0.0))
+        G0 = float(max(self.p.get("G_sl0", 0.0), 0.0))
 
         fac = spin_lattice_enhancement(
             Ts=Ts,
@@ -346,45 +347,70 @@ class NdSb3TM:
             "P_el": float(P_el),
             "P_sl": float(P_sl),
         }
-    
-    # ---- RHS ----
-    def rhs(self, t: float, y):
-        Te, Ts, Tl, m, eta = y
 
-        Te = clipT(Te, 1e-6, 8e4)
-        Ts = clipT(Ts, 1e-6, 5e4)
-        Tl = clipT(Tl, 1e-6, 5e4)
-        m = float(np.clip(m, 0.0, 1.2))
-        eta = float(np.clip(eta, -float(self.p.get("eta_clip", 1.2)), float(self.p.get("eta_clip", 1.2))))
+    def _clip_state(self, Te: float, Ts: float, Tl: float, m: float, eta: float) -> Dict[str, float]:
+        eta_clip = float(self.p.get("eta_clip", 1.2))
+        return {
+            "Te": clipT(Te, 1e-6, 8e4),
+            "Ts": clipT(Ts, 1e-6, 5e4),
+            "Tl": clipT(Tl, 1e-6, 5e4),
+            "m": float(np.clip(m, 0.0, 1.2)),
+            "eta": float(np.clip(eta, -eta_clip, eta_clip)),
+        }
+
+    def _state_eval(self, t: float, Te: float, Ts: float, Tl: float, m: float, eta: float) -> Dict[str, float]:
+        state = self._clip_state(Te, Ts, Tl, m, eta)
+        Te = state["Te"]
+        Ts = state["Ts"]
+        Tl = state["Tl"]
+        m = state["m"]
+        eta = state["eta"]
 
         Ce = self.Ce(Te, Ts, m=m, eta=eta)
         Cs = self.Cs(Ts)
         Cl = self.Cl(Tl)
-
         pw = self.power_terms(t, Te, Ts, Tl, m, eta)
-        P_es = pw["P_es"]
-        P_el = pw["P_el"]
-        P_sl = pw["P_sl"]
 
         Tb = float(self.p["T_bath"])
-        Qe = Ce * (Te - Tb) / max(float(self.p["tau_e_sink"]), 1e-15)
-        Qs = Cs * (Ts - Tb) / max(float(self.p["tau_s_sink"]), 1e-15)
-        Ql = Cl * (Tl - Tb) / max(float(self.p["tau_l_sink"]), 1e-15)
+        tau_e = max(float(self.p["tau_e_sink"]), 1e-15)
+        tau_s = max(float(self.p["tau_s_sink"]), 1e-15)
+        tau_l = max(float(self.p["tau_l_sink"]), 1e-15)
 
-        dTe = (self.laser_S(t) - P_es - P_el - Qe) / Ce
-        dTs = (P_es - P_sl - Qs) / Cs
-        dTl = (P_el + P_sl - Ql) / Cl
-
+        Qe = Ce * (Te - Tb) / tau_e
+        Qs = Cs * (Ts - Tb) / tau_s
+        Ql = Cl * (Tl - Tb) / tau_l
+        source = self.laser_S(t)
         meq = self.m_eq(Ts)
-        tau = self.tau_m(Ts)
-        dm = -(m - meq) / tau
+        tau_m = self.tau_m(Ts)
 
-        deta = self.deta_dt(eta, Ts, m)
+        return {
+            **state,
+            "Ce": Ce,
+            "Cs": Cs,
+            "Cl": Cl,
+            "Qe": Qe,
+            "Qs": Qs,
+            "Ql": Ql,
+            "Qtot": Qe + Qs + Ql,
+            "Sin": source,
+            "meq": meq,
+            "tau_m": tau_m,
+            "dTe": (source - pw["P_es"] - pw["P_el"] - Qe) / Ce,
+            "dTs": (pw["P_es"] - pw["P_sl"] - Qs) / Cs,
+            "dTl": (pw["P_el"] + pw["P_sl"] - Ql) / Cl,
+            "dm": -(m - meq) / tau_m,
+            "deta": self.deta_dt(eta, Ts, m),
+            **pw,
+        }
 
-        return [dTe, dTs, dTl, dm, deta]
+    # ---- RHS ----
+    def rhs(self, t: float, y):
+        Te, Ts, Tl, m, eta = y
+        eval_state = self._state_eval(t, Te, Ts, Tl, m, eta)
+        return [eval_state["dTe"], eval_state["dTs"], eval_state["dTl"], eval_state["dm"], eval_state["deta"]]
 
     def simulate_aligned(self, t_eval, y0=None, method="Radau",
-                         rtol=1e-5, atol=1e-8, max_step=None):
+                         rtol=1e-5, atol=1e-8, max_step=None, with_diag: bool = False):
         if y0 is None:
             Tb = float(self.p["T_bath"])
             y0 = [Tb, Tb, Tb, self.m_eq(Tb), self.eta_init(Tb)]
@@ -419,10 +445,12 @@ class NdSb3TM:
 
         out = {"t": sol.t, "Te": Te, "Ts": Ts, "Tl": Tl, "m": m, "eta": eta, "S_m": S_m}
 
-        try:
-            out["diag"] = energy_diagnostics(self, out)
-        except Exception:
-            out["diag"] = None
+        out["diag"] = None
+        if with_diag:
+            try:
+                out["diag"] = energy_diagnostics(self, out)
+            except Exception:
+                out["diag"] = None
 
         return out
 
@@ -458,11 +486,6 @@ def energy_diagnostics(model: NdSb3TM, sim: dict):
     if n < 2:
         raise ValueError("energy_diagnostics: need at least 2 time points.")
 
-    Tb = float(model.p["T_bath"])
-    tau_e = max(float(model.p["tau_e_sink"]), 1e-15)
-    tau_s = max(float(model.p["tau_s_sink"]), 1e-15)
-    tau_l = max(float(model.p["tau_l_sink"]), 1e-15)
-
     Sin = np.empty(n, dtype=float)
     Qtot = np.empty(n, dtype=float)
     Udot = np.empty(n, dtype=float)
@@ -485,46 +508,28 @@ def energy_diagnostics(model: NdSb3TM, sim: dict):
     Cl_arr = np.empty(n, dtype=float)
 
     for i in range(n):
-        ti = float(t[i])
+        state = model._state_eval(float(t[i]), Te[i], Ts[i], Tl[i], m[i], eta[i])
+        Ce = state["Ce"]
+        Cs = state["Cs"]
+        Cl = state["Cl"]
+        Ud = Ce * state["dTe"] + Cs * state["dTs"] + Cl * state["dTl"]
 
-        Te_i = clipT(Te[i], 1e-6, 8e4)
-        Ts_i = clipT(Ts[i], 1e-6, 5e4)
-        Tl_i = clipT(Tl[i], 1e-6, 5e4)
-        m_i = float(np.clip(m[i], 0.0, 1.2))
-        eta_i = float(np.clip(eta[i], -float(model.p.get("eta_clip", 1.2)), float(model.p.get("eta_clip", 1.2))))
-
-        dTe, dTs, dTl, _, _ = model.rhs(ti, [Te_i, Ts_i, Tl_i, m_i, eta_i])
-
-        Ce = float(model.Ce(Te_i, Ts_i, m=m_i, eta=eta_i))
-        Cs = float(model.Cs(Ts_i))
-        Cl = float(model.Cl(Tl_i))
-
-        pw = model.power_terms(ti, Te_i, Ts_i, Tl_i, m_i, eta_i)
-
-        Qe = Ce * (Te_i - Tb) / tau_e
-        Qs = Cs * (Ts_i - Tb) / tau_s
-        Ql = Cl * (Tl_i - Tb) / tau_l
-        Qt = Qe + Qs + Ql
-
-        S = float(model.laser_S(ti))
-        Ud = Ce * float(dTe) + Cs * float(dTs) + Cl * float(dTl)
-
-        Sin[i] = S
-        Qtot[i] = Qt
+        Sin[i] = state["Sin"]
+        Qtot[i] = state["Qtot"]
         Udot[i] = Ud
-        mismatch[i] = Ud - (S - Qt)
+        mismatch[i] = Ud - (state["Sin"] - state["Qtot"])
 
-        G_es_eff[i] = pw["G_es_eff"]
-        G_el_eff[i] = pw["G_el_eff"]
-        G_sl_eff[i] = pw["G_sl_eff"]
+        G_es_eff[i] = state["G_es_eff"]
+        G_el_eff[i] = state["G_el_eff"]
+        G_sl_eff[i] = state["G_sl_eff"]
 
-        P_es[i] = pw["P_es"]
-        P_el[i] = pw["P_el"]
-        P_sl[i] = pw["P_sl"]
+        P_es[i] = state["P_es"]
+        P_el[i] = state["P_el"]
+        P_sl[i] = state["P_sl"]
 
-        Qe_arr[i] = Qe
-        Qs_arr[i] = Qs
-        Ql_arr[i] = Ql
+        Qe_arr[i] = state["Qe"]
+        Qs_arr[i] = state["Qs"]
+        Ql_arr[i] = state["Ql"]
 
         Ce_arr[i] = Ce
         Cs_arr[i] = Cs
