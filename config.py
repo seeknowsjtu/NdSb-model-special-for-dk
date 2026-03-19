@@ -45,7 +45,17 @@ def default_params() -> dict:
     # ========================================================
     # Thermodynamic anchors
     # ========================================================
+    # T_bath is the external cryostat/substrate temperature that the
+    # reservoir sink terms relax toward. T_init_eff is the actual
+    # pre-pulse sample temperature used to initialize Te, Ts, and Tl.
     p["T_bath"] = 4.0
+    p["use_hot_steady_init"] = 0
+    p["hot_init_mode"] = "manual"   # "manual" or "avg_power"
+    p["T_init_eff"] = p["T_bath"]
+    p["rep_rate_Hz"] = 5.0e5
+    p["preheat_use_lattice_only"] = 1
+    p["preheat_max_dT"] = 100.0
+    p["preheat_solver_tol"] = 1e-6
     p["TN"] = 15.0
     p["TR"] = 13.0
     p["ThetaD"] = 200.0
@@ -214,9 +224,11 @@ def normalize_params_dict(params: dict | None) -> dict:
     Legacy aliases:
         G_el, G_es, G_sl
     """
-    normalized = {} if params is None else dict(params)
+    provided = {} if params is None else dict(params)
+    normalized = default_params()
+    normalized.update(provided)
     for legacy_key, canonical_key in LEGACY_PARAM_ALIASES.items():
-        if canonical_key not in normalized and legacy_key in normalized:
+        if legacy_key in provided and canonical_key not in provided:
             normalized[canonical_key] = normalized[legacy_key]
     return normalized
 

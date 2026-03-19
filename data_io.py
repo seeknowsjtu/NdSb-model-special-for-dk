@@ -257,6 +257,12 @@ def _get_bounds_for_keys(keys):
         # ----------------------------------------------------
         elif k == "T_bath":
             lb.append(0.1); ub.append(300.0)
+        elif k == "T_init_eff":
+            lb.append(0.1); ub.append(400.0)
+        elif k == "rep_rate_Hz":
+            lb.append(0.0); ub.append(1e9)
+        elif k == "preheat_max_dT":
+            lb.append(0.0); ub.append(500.0)
         elif k == "TN":
             lb.append(0.1); ub.append(100.0)
         elif k == "TR":

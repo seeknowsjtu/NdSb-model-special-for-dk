@@ -28,6 +28,13 @@ class ParameterSpec:
 
 
 PARAMETER_FORM_SPECS = (
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "T_bath", "Bath temperature T_bath (K)"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "use_hot_steady_init", "Use hot steady-state init (0/1)", value_type="int"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "hot_init_mode", "Hot init mode (manual/avg_power)", value_type="str"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "T_init_eff", "Effective pre-pulse temperature T_init_eff (K)"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "rep_rate_Hz", "Repetition rate (Hz)"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "preheat_use_lattice_only", "Use lattice-only preheat balance (0/1)", value_type="int"),
+    ParameterSpec("Basic", "Temperatures / hot steady-state init", "preheat_max_dT", "Max preheat rise above bath (K)"),
     ParameterSpec("Basic", "Pump", "fluence_multiplier", "Fluence multiplier"),
     ParameterSpec("Basic", "Pump", "delta_opt", "Optical depth δ (m)"),
     ParameterSpec("Basic", "Pump", "pulse_width", "Pulse FWHM (s)"),

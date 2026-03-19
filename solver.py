@@ -12,6 +12,7 @@ from typing import Optional, Dict
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import root_scalar
 
 from config import (
     kB_meV, n_mol_vol,
@@ -74,6 +75,53 @@ class NdSb3TM:
         edens = self.energy_density()
         x = (t - float(self.p["t0_pulse"])) / sigma
         return (edens / (math.sqrt(2.0*math.pi)*sigma)) * math.exp(-0.5*(x*x))
+
+    def estimate_hot_steady_T_init(self) -> Dict[str, float]:
+        """
+        Estimate the effective pre-pulse sample temperature under repeated
+        pumping. This only changes the initial condition; bath sink terms still
+        relax toward the true external bath temperature T_bath.
+        """
+        Tb = float(self.p["T_bath"])
+        Tmax = Tb + max(float(self.p.get("preheat_max_dT", 100.0)), 0.0)
+        manual_T = float(np.clip(float(self.p.get("T_init_eff", Tb)), Tb, Tmax))
+        mode = str(self.p.get("hot_init_mode", "manual")).strip().lower()
+
+        if mode == "manual":
+            return {"T_init_eff_used": manual_T}
+
+        if mode != "avg_power":
+            return {"T_init_eff_used": manual_T}
+
+        P_avg = max(self.energy_density(), 0.0) * max(float(self.p.get("rep_rate_Hz", 0.0)), 0.0)
+        tau_l = max(float(self.p.get("tau_l_sink", 1.0)), 1e-15)
+        tol = max(float(self.p.get("preheat_solver_tol", 1e-6)), 1e-12)
+        use_lattice_only = int(self.p.get("preheat_use_lattice_only", 1)) == 1
+
+        def balance(T):
+            T = float(np.clip(T, Tb, Tmax))
+            if use_lattice_only:
+                Ceff = self.Cl(T)
+            else:
+                Ceff = self.Cl(T) + self.Ce(T, T, m=self.m_eq(T), eta=self.eta_init(T)) + self.Cs(T)
+            return Ceff * (T - Tb) / tau_l - P_avg
+
+        if P_avg <= 0.0:
+            return {"T_init_eff_used": Tb, "P_avg_preheat": P_avg}
+
+        f_hi = balance(Tmax)
+        if f_hi <= 0.0:
+            return {"T_init_eff_used": Tmax, "P_avg_preheat": P_avg}
+
+        try:
+            root = root_scalar(balance, bracket=(Tb, Tmax), method="bisect", xtol=tol)
+            if root.converged:
+                T_used = float(np.clip(root.root, Tb, Tmax))
+                return {"T_init_eff_used": T_used, "P_avg_preheat": P_avg}
+        except Exception:
+            pass
+
+        return {"T_init_eff_used": manual_T, "P_avg_preheat": P_avg}
 
     # ---- order parameter equilibrium & dynamics ----
     def m_eq(self, Ts: float) -> float:
@@ -411,9 +459,17 @@ class NdSb3TM:
 
     def simulate_aligned(self, t_eval, y0=None, method="Radau",
                          rtol=1e-5, atol=1e-8, max_step=None, with_diag: bool = False):
+        init_info = {"T_init_eff_used": float(self.p["T_bath"])}
         if y0 is None:
             Tb = float(self.p["T_bath"])
-            y0 = [Tb, Tb, Tb, self.m_eq(Tb), self.eta_init(Tb)]
+            if int(self.p.get("use_hot_steady_init", 0)) == 1:
+                init_info = self.estimate_hot_steady_T_init()
+                T0_eff = float(init_info["T_init_eff_used"])
+            else:
+                T0_eff = Tb
+            y0 = [T0_eff, T0_eff, T0_eff, self.m_eq(T0_eff), self.eta_init(T0_eff)]
+        else:
+            init_info["T_init_eff_used"] = float(y0[0])
 
         t_eval = np.array(t_eval, dtype=float)
         t_eval = t_eval[np.isfinite(t_eval)]
@@ -444,6 +500,10 @@ class NdSb3TM:
         S_m = float(self.p["S_offset"]) + float(self.p["S_amp"]) * (m ** float(self.p["S_power"]))
 
         out = {"t": sol.t, "Te": Te, "Ts": Ts, "Tl": Tl, "m": m, "eta": eta, "S_m": S_m}
+        out["T_bath"] = float(self.p["T_bath"])
+        out["T_init_eff_used"] = float(init_info["T_init_eff_used"])
+        if "P_avg_preheat" in init_info:
+            out["P_avg_preheat"] = float(init_info["P_avg_preheat"])
 
         out["diag"] = None
         if with_diag:
