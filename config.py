@@ -81,6 +81,7 @@ def default_params() -> dict:
     p["b_eta"] = 20.0
     p["c_eta"] = 200.0             # used only for first-order mode
     p["g_m2eta2"] = 0.0
+    p["lam_m2"] = 0.0
 
     # Numerical clamp / sign convention
     p["eta_clip"] = 1.2
@@ -215,6 +216,18 @@ def default_params() -> dict:
 # ============================================================
 # Utilities
 # ============================================================
+
+
+MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
+    "G_el0", "G_es0", "G_sl0",
+    "tau_m0", "tau_m_crit_amp", "nu",
+    "Gamma_eta", "a_eta0", "b_eta",
+    "S_scale", "t0_pulse",
+]
+
+MULTI_FIT_DEFAULT_LOCAL_KEYS = ["dt_local", "A_obs", "B_obs"]
+MULTI_FIT_DEFAULT_OBSERVABLE_MODE = "eta"
+
 def clipT(T: float, Tmin: float = 1e-6, Tmax: float = 8e4) -> float:
     return float(np.clip(float(T), Tmin, Tmax))
 
