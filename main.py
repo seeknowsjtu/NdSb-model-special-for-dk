@@ -709,6 +709,10 @@ if GUI_AVAILABLE:
                     local_keys=preset["local_keys"],
                     observable_mode=preset["observable_mode"],
                     sigma_S=0.02,
+                    progress_every=5,
+                    progress_callback=self._log,
+                    optimizer_verbose=0,
+                    enable_timing=True,
                 )
                 self.multi_fit_params = fit_bundle
                 self.multi_fit_res = res
