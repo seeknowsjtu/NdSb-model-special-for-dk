@@ -96,6 +96,9 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         observable_mode="eta",
         sigma_S=0.02,
         max_nfev=max_nfev,
+        progress_every=5,
+        optimizer_verbose=2,
+        enable_timing=True,
     )
 
     exports = export_multi_fit_results(

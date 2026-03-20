@@ -573,7 +573,7 @@ def fit_params_multi(
 
     def _emit_progress(message):
         if progress_callback is None:
-            print(message)
+            print(message, flush=True)
             return
         progress_callback(message)
 
@@ -805,6 +805,7 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
         "best_local_params": {k: _json_safe_dict(v) for k, v in fit_bundle["best_local_params"].items()},
         "optimizer_summary": optimizer_summary,
         "dataset_summary": fit_bundle["dataset_summary"],
+        "timing_summary": fit_bundle.get("timing_summary"),
     }
     json_path.write_text(json.dumps(json_payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
