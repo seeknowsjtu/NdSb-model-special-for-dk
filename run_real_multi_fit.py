@@ -29,10 +29,16 @@ DATA_DIR = Path(".")
 # =========================
 # 2. 运行控制
 # =========================
-HEARTBEAT_SEC = 10          # 每隔多少秒提示“还在跑”
-SMOKE_TEST = True           # 先做一个小步数试跑
+HEARTBEAT_SEC = 10          # 每隔多少秒打印一次“still running”
+SMOKE_TEST = True           # 先做 smoke test
 SMOKE_MAX_NFEV = 20         # smoke test 的最大 nfev
-FULL_MAX_NFEV = 120         # 正式跑的最大 nfev
+FULL_MAX_NFEV = 120         # 正式第一轮最大 nfev
+
+# multi-fit 相关设置
+SIGMA_S = 0.02
+PROGRESS_EVERY = 5
+OPTIMIZER_VERBOSE = 2
+ENABLE_TIMING = True
 
 # =========================
 # 3. 读入一个数据集
@@ -77,7 +83,7 @@ def print_dataset_summary(datasets: list[dict]) -> None:
 def make_initial_params() -> dict:
     p0 = normalize_params_dict(default_params())
 
-    # 轻微扰动初值（可注释掉）
+    # 轻微扰动初值（可全部注释掉，保持最原始）
     p0["G_el0"] *= 1.02
     p0["G_es0"] *= 0.98
     p0["tau_m0"] *= 1.05
@@ -94,11 +100,11 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         p0,
         local_keys=["dt_local"],
         observable_mode="eta",
-        sigma_S=0.02,
+        sigma_S=SIGMA_S,
         max_nfev=max_nfev,
-        progress_every=5,
-        optimizer_verbose=2,
-        enable_timing=True,
+        progress_every=PROGRESS_EVERY,
+        optimizer_verbose=OPTIMIZER_VERBOSE,
+        enable_timing=ENABLE_TIMING,
     )
 
     exports = export_multi_fit_results(
@@ -129,7 +135,7 @@ def run_with_heartbeat(datasets: list[dict], p0: dict, max_nfev: int, export_roo
 
         end = time.perf_counter()
 
-        # 如果拟合线程里抛异常，这里会再次抛出
+        # 若拟合线程里抛异常，这里会再次抛出
         fit_bundle, res, exports = future.result()
 
     print(f"[multi-fit] finished in {end - start:.1f} s", flush=True)
@@ -163,6 +169,25 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
             f"wrms={row['wrms']:.4e} | "
             f"dt_local_ps={dt_local_ps:.4f}"
         )
+
+    timing = fit_bundle.get("timing_summary", {})
+    if timing:
+        print("\n=== timing summary ===")
+        print(f"residual_call_count = {timing.get('residual_call_count')}")
+        print(f"elapsed_sec         = {timing.get('elapsed_sec')}")
+        print(f"avg_residual_sec    = {timing.get('avg_residual_sec')}")
+        print(f"estimated_total_calls = {timing.get('estimated_total_calls')}")
+        print(f"rough_eta_sec       = {timing.get('rough_eta_sec')}")
+
+        per_dataset = timing.get("per_dataset", {})
+        if per_dataset:
+            print("\n=== per-dataset timing ===")
+            for name, info in per_dataset.items():
+                print(
+                    f"  {name:>22s} | "
+                    f"call_count={info.get('call_count')} | "
+                    f"avg_wall_time_sec={info.get('avg_wall_time_sec'):.4f}"
+                )
 
     print("\n=== exports ===")
     for k, v in exports.items():
