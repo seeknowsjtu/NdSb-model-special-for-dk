@@ -61,6 +61,9 @@ def main() -> None:
         observable_mode="eta",
         sigma_S=0.01,
         max_nfev=80,
+        progress_every=5,
+        optimizer_verbose=2,
+        enable_timing=True,
     )
     exports = export_multi_fit_results(fit_bundle, res, export_root="fit_results/demo_multi")
 

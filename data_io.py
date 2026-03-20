@@ -16,6 +16,7 @@ import json
 import os
 import re
 from datetime import datetime
+from time import perf_counter
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -470,6 +471,10 @@ def fit_params_multi(
     observable_mode=MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
     sigma_S=0.02,
     max_nfev=300,
+    progress_every=5,
+    progress_callback=None,
+    optimizer_verbose=0,
+    enable_timing=True,
 ):
     """
     Jointly fit multiple S datasets using shared global parameters and
@@ -552,6 +557,47 @@ def fit_params_multi(
 
     n_global = len(global_keys)
     n_local = len(local_keys)
+    enable_timing = bool(enable_timing)
+    progress_every = int(progress_every) if progress_every is not None else 0
+    residual_call_count = 0
+    fit_start_time = perf_counter()
+    dataset_timing_stats = {
+        dataset["name"]: {
+            "dataset_name": dataset["name"],
+            "wall_time_total_sec": 0.0,
+            "call_count": 0,
+            "avg_wall_time_sec": 0.0,
+        }
+        for dataset in validated
+    }
+
+    def _emit_progress(message):
+        if progress_callback is None:
+            print(message)
+            return
+        progress_callback(message)
+
+    def _build_timing_summary():
+        elapsed_sec = max(perf_counter() - fit_start_time, 0.0)
+        avg_residual_sec = elapsed_sec / residual_call_count if residual_call_count > 0 else 0.0
+        estimated_total_calls = int(max(int(max_nfev), 1) * 5)
+        rough_eta_sec = avg_residual_sec * max(estimated_total_calls - residual_call_count, 0)
+        return {
+            "residual_call_count": int(residual_call_count),
+            "elapsed_sec": float(elapsed_sec),
+            "avg_residual_sec": float(avg_residual_sec),
+            "estimated_total_calls": estimated_total_calls,
+            "rough_eta_sec": float(rough_eta_sec),
+            "per_dataset": {
+                name: {
+                    "dataset_name": stats["dataset_name"],
+                    "wall_time_total_sec": float(stats["wall_time_total_sec"]),
+                    "call_count": int(stats["call_count"]),
+                    "avg_wall_time_sec": float(stats["avg_wall_time_sec"]),
+                }
+                for name, stats in dataset_timing_stats.items()
+            },
+        }
 
     def _split_x(x):
         x = np.asarray(x, dtype=float)
@@ -564,6 +610,7 @@ def fit_params_multi(
         return x_global, x_local
 
     def _evaluate_dataset(p_global, dataset, local_x, with_diag=False):
+        eval_start = perf_counter() if enable_timing else None
         p_local = dict(dataset["local_init"])
         _unpack_params(p_local, local_keys, local_x)
 
@@ -577,6 +624,13 @@ def fit_params_multi(
         sim = model.simulate_aligned(t_model, with_diag=with_diag)
         S_fit = build_observable(sim, p_dataset, p_local, observable_mode)
         residual = (S_fit - dataset["S"]) / sigma_S
+
+        wall_time_sec = max(perf_counter() - eval_start, 0.0) if enable_timing and eval_start is not None else 0.0
+        stats = dataset_timing_stats[dataset["name"]]
+        if enable_timing:
+            stats["call_count"] += 1
+            stats["wall_time_total_sec"] += wall_time_sec
+            stats["avg_wall_time_sec"] = stats["wall_time_total_sec"] / max(stats["call_count"], 1)
 
         return {
             "name": dataset["name"],
@@ -597,17 +651,36 @@ def fit_params_multi(
             "local_params": p_local,
             "params": p_dataset,
             "diag": sim.get("diag"),
+            "wall_time_sec": float(wall_time_sec),
+            "avg_wall_time_sec": float(stats["avg_wall_time_sec"]),
         }
 
     def residual(x):
+        nonlocal residual_call_count
+
         x_global, x_local_list = _split_x(x)
         p_global = dict(p0)
         _unpack_params(p_global, global_keys, x_global)
 
+        residual_call_count += 1
         parts = []
         for dataset, local_x in zip(validated, x_local_list):
             evaluated = _evaluate_dataset(p_global, dataset, local_x, with_diag=False)
             parts.append(evaluated["residual"])
+
+        if progress_every > 0 and (residual_call_count % progress_every == 0):
+            timing_summary = _build_timing_summary()
+            _emit_progress(
+                "[multi-fit] residual_call={residual_call} | elapsed={elapsed:.2f} s | "
+                "avg_residual={avg_residual:.4f} s | datasets={datasets} | rough_eta={rough_eta:.2f} s".format(
+                    residual_call=timing_summary["residual_call_count"],
+                    elapsed=timing_summary["elapsed_sec"],
+                    avg_residual=timing_summary["avg_residual_sec"],
+                    datasets=len(validated),
+                    rough_eta=timing_summary["rough_eta_sec"],
+                )
+            )
+
         return np.concatenate(parts)
 
     res = least_squares(
@@ -618,6 +691,7 @@ def fit_params_multi(
         loss="soft_l1",
         f_scale=1.0,
         max_nfev=int(max(max_nfev, 1)),
+        verbose=int(optimizer_verbose),
     )
 
     x_global_best, x_local_best = _split_x(res.x)
@@ -647,7 +721,11 @@ def fit_params_multi(
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
             "A_obs": float(local_best.get("A_obs", np.nan)),
             "B_obs": float(local_best.get("B_obs", np.nan)),
+            "wall_time_sec": float(evaluated["wall_time_sec"]),
+            "avg_wall_time_sec": float(evaluated["avg_wall_time_sec"]),
         })
+
+    timing_summary = _build_timing_summary()
 
     fit_bundle = {
         "observable_mode": str(observable_mode),
@@ -657,6 +735,7 @@ def fit_params_multi(
         "best_local_params": best_local_params,
         "dataset_fits": dataset_fits,
         "dataset_summary": dataset_summary,
+        "timing_summary": timing_summary,
     }
     return fit_bundle, res
 
