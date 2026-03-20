@@ -74,7 +74,7 @@ POSITIVE_FIT_KEYS = {
 
 LOCAL_KEY_BOUNDS = {
     "dt_local": (-2e-12, 2e-12),
-    "A_obs": (0.0, 10.0),
+    "A_obs": (-10.0, 10.0),
     "B_obs": (-2.0, 2.0),
 }
 
@@ -487,8 +487,12 @@ def fit_params_multi(
         raise ValueError("fit_params_multi: datasets must be a non-empty list.")
 
     p0 = normalize_params_dict(p0)
-    global_keys = normalize_fit_keys(global_keys or MULTI_FIT_DEFAULT_GLOBAL_KEYS)
-    local_keys = list(local_keys or MULTI_FIT_DEFAULT_LOCAL_KEYS)
+    if global_keys is None:
+        global_keys = MULTI_FIT_DEFAULT_GLOBAL_KEYS
+    if local_keys is None:
+        local_keys = MULTI_FIT_DEFAULT_LOCAL_KEYS
+    global_keys = normalize_fit_keys(global_keys)
+    local_keys = list(local_keys)
 
     sigma_S = float(max(sigma_S, 1e-12))
     debye_obj = DebyeCl(thetaD=float(p0["ThetaD"]))

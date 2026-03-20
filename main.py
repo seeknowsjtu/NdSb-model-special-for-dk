@@ -129,7 +129,7 @@ if GUI_AVAILABLE:
             self._refresh_entries_from_params(self.p, view="p")
             self._plot_empty()
             self._log("Ready. Load CSV with headers like: tps, teK, tsK, tlK, S.")
-            self._log("Multi-fit preset: observable=eta | local_keys=dt_local,A_obs,B_obs.")
+            self._log("Multi-fit preset: observable=eta | local_keys=dt_local (A_obs/B_obs available but not default).")
 
         # ====================================================
         # UI build
@@ -666,8 +666,20 @@ if GUI_AVAILABLE:
                 self._log(f"[error] {e}")
                 return
 
-            self.datasets.extend(loaded)
-            self._log(f"[multi-load] total datasets={len(self.datasets)}")
+            existing_by_path = {item.get("path"): item for item in self.datasets if item.get("path")}
+            unnamed_existing = [item for item in self.datasets if not item.get("path")]
+            replaced = 0
+            for dataset in loaded:
+                dataset_path = dataset.get("path")
+                if dataset_path in existing_by_path:
+                    replaced += 1
+                existing_by_path[dataset_path] = dataset
+
+            merged = unnamed_existing + list(existing_by_path.values())
+            self.datasets = merged
+            self._log(
+                f"[multi-load] added={len(loaded)} | replaced={replaced} | total datasets={len(self.datasets)}"
+            )
 
         def on_clear_datasets(self):
             self.datasets = []
