@@ -16,9 +16,24 @@ from typing import Any, cast, TYPE_CHECKING
 
 import numpy as np
 
-from config import default_params, safe_float, fmt_num, normalize_params_dict
+from config import (
+    MULTI_FIT_DEFAULT_GLOBAL_KEYS,
+    MULTI_FIT_DEFAULT_LOCAL_KEYS,
+    MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
+    default_params,
+    safe_float,
+    fmt_num,
+    normalize_params_dict,
+)
 from solver import NdSb3TM
-from data_io import load_csv_auto, fit_params, normalize_fit_keys
+from data_io import (
+    export_multi_fit_results,
+    fit_params,
+    fit_params_multi,
+    load_csv_auto,
+    normalize_fit_keys,
+    parse_fluence_ratio_from_name,
+)
 
 # ============================================================
 # GUI availability
@@ -80,6 +95,13 @@ FIT_PRESETS = {
 }
 
 
+MULTI_FIT_PRESET = {
+    "global_keys": list(MULTI_FIT_DEFAULT_GLOBAL_KEYS),
+    "local_keys": list(MULTI_FIT_DEFAULT_LOCAL_KEYS),
+    "observable_mode": MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
+}
+
+
 # ============================================================
 # GUI App
 # ============================================================
@@ -98,11 +120,16 @@ if GUI_AVAILABLE:
             self.data: dict[str, Any] = {
                 "t": None, "Te": None, "Ts": None, "Tl": None, "S": None, "path": None
             }
+            self.datasets: list[dict[str, Any]] = []
+            self.multi_fit_params = None
+            self.multi_fit_res = None
+            self.multi_fit_exports = None
 
             self._build_ui()
             self._refresh_entries_from_params(self.p, view="p")
             self._plot_empty()
             self._log("Ready. Load CSV with headers like: tps, teK, tsK, tlK, S.")
+            self._log("Multi-fit preset: observable=eta | local_keys=dt_local,A_obs,B_obs.")
 
         # ====================================================
         # UI build
@@ -224,8 +251,12 @@ if GUI_AVAILABLE:
                 btnfrm.columnconfigure(i, weight=1)
             ttk.Button(btnfrm, text="Simulate", command=self.on_simulate).grid(row=0, column=0, padx=3, pady=2, sticky="ew")
             ttk.Button(btnfrm, text="Load CSV...", command=self.on_load_csv).grid(row=0, column=1, padx=3, pady=2, sticky="ew")
-            ttk.Button(btnfrm, text="Show Main (p)", command=self.on_show_p).grid(row=0, column=2, padx=3, pady=2, sticky="ew")
-            ttk.Button(btnfrm, text="Show Fit (p_fit)", command=self.on_show_pfit).grid(row=0, column=3, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Load CSVs...", command=self.on_load_csvs).grid(row=0, column=2, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Clear Datasets", command=self.on_clear_datasets).grid(row=0, column=3, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Show Main (p)", command=self.on_show_p).grid(row=1, column=0, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Show Fit (p_fit)", command=self.on_show_pfit).grid(row=1, column=1, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Fit Multi-S", command=self.on_fit_multi_s).grid(row=1, column=2, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Export Multi-Fit", command=self.on_export_multi_fit).grid(row=1, column=3, padx=3, pady=2, sticky="ew")
 
             fitfrm = ttk.Frame(left)
             fitfrm.grid(row=4, column=0, sticky="ew", pady=6)
@@ -449,6 +480,66 @@ if GUI_AVAILABLE:
             self.fig.tight_layout(pad=2.0)
             self.canvas.draw()
 
+        def _plot_multi_fit_preview(self, fit_bundle):
+            """Preview the latest multi-dataset fit on the existing 2x2 canvas."""
+            dataset_fits = fit_bundle.get("dataset_fits", [])
+            if not dataset_fits:
+                self._plot_empty()
+                return
+
+            first = dataset_fits[0]
+            tps = first["t"] * 1e12
+            TN = float(fit_bundle["best_global_params"]["TN"])
+            TR = float(fit_bundle["best_global_params"]["TR"])
+
+            self.axT.clear()
+            self.axT.plot(tps, first["Te_fit"], label=f"{first['name']} Te_fit")
+            self.axT.plot(tps, first["Ts_fit"], label=f"{first['name']} Ts_fit")
+            self.axT.plot(tps, first["Tl_fit"], label=f"{first['name']} Tl_fit", linestyle="--")
+            self.axT.axhline(TN, linestyle=":", label="TN")
+            self.axT.axhline(TR, linestyle="--", label="TR")
+            self.axT.set_title(f"Temperatures (preview: {first['name']})")
+            self.axT.set_xlabel("time (ps)")
+            self.axT.set_ylabel("T (K)")
+            self.axT.grid(alpha=0.3)
+            self.axT.legend(loc="best", fontsize=8)
+
+            self.axM.clear()
+            for item in dataset_fits:
+                label = f"{item['name']} | {item['fluence_ratio']:.1f}"
+                self.axM.scatter(item["t"] * 1e12, item["S_exp"], s=12, alpha=0.45, label=f"exp {label}")
+                self.axM.plot(item["t"] * 1e12, item["S_fit"], linewidth=1.6, label=f"fit {label}")
+            self.axM.set_title(f"Multi-S global fit ({fit_bundle['observable_mode']})")
+            self.axM.set_xlabel("time (ps)")
+            self.axM.set_ylabel("S")
+            self.axM.grid(alpha=0.3)
+            self.axM.legend(loc="best", fontsize=7, ncol=2)
+
+            self.axG.clear()
+            diag = first.get("diag")
+            if diag is not None:
+                self.axG.plot(tps, diag["G_el_eff"], label="G_el_eff")
+                self.axG.plot(tps, diag["G_es_eff"], label="G_es_eff")
+                self.axG.plot(tps, diag["G_sl_eff"], label="G_sl_eff")
+                self.axG.legend(loc="best", fontsize=8)
+            self.axG.set_title("Effective couplings (preview first dataset)")
+            self.axG.set_xlabel("time (ps)")
+            self.axG.set_ylabel("G_eff (W/m$^3$/K)")
+            self.axG.grid(alpha=0.3)
+
+            self.axP.clear()
+            flu = [item["fluence_ratio"] for item in dataset_fits]
+            wrms = [item["wrms"] for item in dataset_fits]
+            self.axP.plot(flu, wrms, marker="o", label="WRMS")
+            self.axP.set_title("Multi-fit dataset summary")
+            self.axP.set_xlabel("fluence ratio")
+            self.axP.set_ylabel("WRMS")
+            self.axP.grid(alpha=0.3)
+            self.axP.legend(loc="best", fontsize=8)
+
+            self.fig.tight_layout(pad=2.0)
+            self.canvas.draw()
+
         # ====================================================
         # Buttons
         # ====================================================
@@ -538,6 +629,110 @@ if GUI_AVAILABLE:
                 )
             except Exception as e:
                 messagebox.showerror("Load CSV failed", str(e))
+                self._log(f"[error] {e}")
+
+        def on_load_csvs(self):
+            paths = filedialog.askopenfilenames(
+                title="Choose CSV files",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            if not paths:
+                return
+
+            loaded = []
+            try:
+                for path in paths:
+                    t, Te, Ts, Tl, S, names, unit = load_csv_auto(path)
+                    fluence_ratio = parse_fluence_ratio_from_name(path)
+                    dataset = {
+                        "name": os.path.basename(path),
+                        "path": path,
+                        "t": t,
+                        "Te": Te,
+                        "Ts": Ts,
+                        "Tl": Tl,
+                        "S": S,
+                        "fluence_ratio": fluence_ratio,
+                    }
+                    if S is None:
+                        raise ValueError(f"Dataset '{os.path.basename(path)}' has no S column and cannot be used for multi-fit.")
+                    loaded.append(dataset)
+                    self._log(
+                        f"[multi-load] name={dataset['name']} | N={len(t)} | fluence_ratio={fluence_ratio:.3f} | "
+                        f"time unit={unit} | columns={names}"
+                    )
+            except Exception as e:
+                messagebox.showerror("Load CSVs failed", str(e))
+                self._log(f"[error] {e}")
+                return
+
+            self.datasets.extend(loaded)
+            self._log(f"[multi-load] total datasets={len(self.datasets)}")
+
+        def on_clear_datasets(self):
+            self.datasets = []
+            self.multi_fit_params = None
+            self.multi_fit_res = None
+            self.multi_fit_exports = None
+            self._log("[multi-load] cleared all datasets and multi-fit results.")
+
+        def on_fit_multi_s(self):
+            if not self.datasets:
+                messagebox.showwarning("No datasets", "Please load multiple CSV files first.")
+                return
+
+            self._read_entries_to_params()
+            p_start = normalize_params_dict(self._current_params_dict())
+            preset = dict(MULTI_FIT_PRESET)
+
+            try:
+                self._log(
+                    f"[multi-fit] observable={preset['observable_mode']} | global_keys={preset['global_keys']} | "
+                    f"local_keys={preset['local_keys']}"
+                )
+                fit_bundle, res = fit_params_multi(
+                    self.datasets,
+                    p_start,
+                    global_keys=preset["global_keys"],
+                    local_keys=preset["local_keys"],
+                    observable_mode=preset["observable_mode"],
+                    sigma_S=0.02,
+                )
+                self.multi_fit_params = fit_bundle
+                self.multi_fit_res = res
+                self.p_fit = dict(fit_bundle["best_global_params"])
+                self.fit_res = res
+                self._refresh_entries_from_params(self.p_fit, view="p_fit")
+                self._plot_multi_fit_preview(fit_bundle)
+
+                self._log(
+                    f"[multi-fit] success={res.success} | cost={res.cost:.3e} | nfev={res.nfev} | status={res.status}"
+                )
+                for key in fit_bundle["global_keys"]:
+                    self._log(f"    [global] {key} = {fmt_num(fit_bundle['best_global_params'][key])}")
+                for row in fit_bundle["dataset_summary"]:
+                    self._log(
+                        f"    [local] {row['dataset_name']} | rms={row['rms']:.4g} | wrms={row['wrms']:.4g} | "
+                        f"dt_local_ps={row['dt_local_ps']:.4g} | A_obs={row['A_obs']:.4g} | B_obs={row['B_obs']:.4g}"
+                    )
+            except Exception as e:
+                messagebox.showerror("Multi-fit error", str(e))
+                self._log(f"[error] {e}")
+
+        def on_export_multi_fit(self):
+            if self.multi_fit_params is None or self.multi_fit_res is None:
+                messagebox.showwarning("No multi-fit", "Please run Fit Multi-S first.")
+                return
+            try:
+                exports = export_multi_fit_results(self.multi_fit_params, self.multi_fit_res)
+                self.multi_fit_exports = exports
+                self._log(f"[multi-export] export_dir={exports['export_dir']}")
+                self._log(f"[multi-export] json={exports['json']}")
+                self._log(f"[multi-export] summary_csv={exports['summary_csv']}")
+                self._log(f"[multi-export] overlay_png={exports['overlay_png']}")
+                self._log(f"[multi-export] params_png={exports['params_png']}")
+            except Exception as e:
+                messagebox.showerror("Export failed", str(e))
                 self._log(f"[error] {e}")
 
         def _fit(self, mode: str):
