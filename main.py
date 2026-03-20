@@ -293,6 +293,7 @@ if GUI_AVAILABLE:
         def _log(self, msg: str):
             self.txt.insert("end", msg + "\n")
             self.txt.see("end")
+            self.update_idletasks()
 
         def _set_view_label(self):
             self.lbl_view.config(text=f"VIEW: {self.current_view}")
