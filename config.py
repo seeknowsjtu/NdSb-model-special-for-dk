@@ -225,7 +225,7 @@ MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
     "S_scale", "t0_pulse",
 ]
 
-MULTI_FIT_DEFAULT_LOCAL_KEYS = ["dt_local", "A_obs", "B_obs"]
+MULTI_FIT_DEFAULT_LOCAL_KEYS = ["dt_local"]
 MULTI_FIT_DEFAULT_OBSERVABLE_MODE = "eta"
 
 def clipT(T: float, Tmin: float = 1e-6, Tmax: float = 8e4) -> float:
