@@ -10,6 +10,7 @@ from data_io import (
     parse_fluence_ratio_from_name,
     fit_params_multi,
     export_multi_fit_results,
+    _get_bounds_for_keys,
 )
 
 # =========================
@@ -31,14 +32,17 @@ DATA_DIR = Path(".")
 # =========================
 HEARTBEAT_SEC = 10          # 每隔多少秒打印一次“still running”
 SMOKE_TEST = True           # 先做 smoke test
-SMOKE_MAX_NFEV = 20         # smoke test 的最大 nfev
-FULL_MAX_NFEV = 120         # 正式第一轮最大 nfev
+SMOKE_MAX_NFEV = 40         # smoke test 的最大 nfev
+FULL_MAX_NFEV = 150         # 正式第一轮最大 nfev
 
 # multi-fit 相关设置
 SIGMA_S = 0.02
 PROGRESS_EVERY = 5
 OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
+
+ROUND1_GLOBAL_KEYS = ["G_es0", "G_sl0", "Gamma_eta", "a_eta0", "t0_pulse"]
+ROUND1_GLOBAL_BOUND_WARNING_KEYS = ["G_es0", "G_sl0", "Gamma_eta", "a_eta0", "t0_pulse"]
 
 # =========================
 # 3. 读入一个数据集
@@ -98,8 +102,10 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
     fit_bundle, res = fit_params_multi(
         datasets,
         p0,
+        global_keys=ROUND1_GLOBAL_KEYS,
         local_keys=["dt_local"],
         observable_mode="eta",
+        # observable_mode="eta_m2",
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,
         progress_every=PROGRESS_EVERY,
@@ -107,11 +113,16 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         enable_timing=ENABLE_TIMING,
     )
 
-    exports = export_multi_fit_results(
-        fit_bundle,
-        res,
-        export_root=export_root,
-    )
+    try:
+        exports = export_multi_fit_results(
+            fit_bundle,
+            res,
+            export_root=export_root,
+        )
+    except Exception as exc:
+        warning_msg = f"export failed: {exc}"
+        print(f"[warning] {warning_msg}", flush=True)
+        exports = {"export_error": str(exc)}
     return fit_bundle, res, exports
 
 # =========================
@@ -144,6 +155,34 @@ def run_with_heartbeat(datasets: list[dict], p0: dict, max_nfev: int, export_roo
 # =========================
 # 8. 打印结果
 # =========================
+def _print_bound_warnings(fit_bundle) -> None:
+    warning_lines = []
+
+    for row in fit_bundle["dataset_summary"]:
+        dt_local_ps = float(row.get("dt_local_ps", float("nan")))
+        if abs(dt_local_ps) >= 0.475:
+            warning_lines.append(
+                f"[warning] dt_local near bound: {row['dataset_name']} dt_local_ps={dt_local_ps:.3f}"
+            )
+
+    global_lb, global_ub = _get_bounds_for_keys(ROUND1_GLOBAL_BOUND_WARNING_KEYS)
+    best_global = fit_bundle["best_global_params"]
+    for key, lb, ub in zip(ROUND1_GLOBAL_BOUND_WARNING_KEYS, global_lb, global_ub):
+        value = float(best_global.get(key, float("nan")))
+        if not (lb < ub):
+            continue
+        margin = 0.05 * (ub - lb)
+        if value <= lb + margin or value >= ub - margin:
+            warning_lines.append(
+                f"[warning] global param near bound: {key}={value:.8g} within 5% of [{lb:.8g}, {ub:.8g}]"
+            )
+
+    if warning_lines:
+        print("\n=== bound warnings ===")
+        for line in warning_lines:
+            print(line)
+
+
 def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
     print("\n=== optimizer summary ===")
     print(f"success = {res.success}")
@@ -169,6 +208,8 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
             f"wrms={row['wrms']:.4e} | "
             f"dt_local_ps={dt_local_ps:.4f}"
         )
+
+    _print_bound_warnings(fit_bundle)
 
     timing = fit_bundle.get("timing_summary", {})
     if timing:
