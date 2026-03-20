@@ -74,7 +74,7 @@ POSITIVE_FIT_KEYS = {
 }
 
 LOCAL_KEY_BOUNDS = {
-    "dt_local": (-2e-12, 2e-12),
+    "dt_local": (-0.5e-12, 0.5e-12),
     "A_obs": (-10.0, 10.0),
     "B_obs": (-2.0, 2.0),
 }
@@ -242,7 +242,7 @@ def _get_bounds_for_keys(keys):
         elif k.startswith("tau_m"):
             lb.append(1e-13); ub.append(5e-9)
         elif k == "Gamma_eta":
-            lb.append(1e8); ub.append(1e14)
+            lb.append(1e10); ub.append(1e12)
         elif k == "Gamma_eta_low_frac":
             lb.append(1e-6); ub.append(1.0)
         elif k == "eta_dT":
@@ -812,7 +812,20 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     with summary_csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(
             fh,
-            fieldnames=["dataset_name", "fluence_ratio", "n_points", "rms", "wrms", "dt_local_ps", "A_obs", "B_obs"],
+            fieldnames=[
+                "dataset_name",
+                "path",
+                "fluence_ratio",
+                "n_points",
+                "rms",
+                "wrms",
+                "dt_local_ps",
+                "A_obs",
+                "B_obs",
+                "wall_time_sec",
+                "avg_wall_time_sec",
+            ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(fit_bundle["dataset_summary"])
