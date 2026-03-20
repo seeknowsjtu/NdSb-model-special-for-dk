@@ -153,12 +153,25 @@ if GUI_AVAILABLE:
 
             self.entries: dict[str, Any] = {}
             self.entry_specs: dict[str, Any] = {}
+            self.entry_vars: dict[str, Any] = {}
 
             def add_entry(parent, key, label, width_label=34, width_entry=22):
                 row = ttk.Frame(parent)
                 row.pack(fill="x", pady=2)
                 ttk.Label(row, text=label, width=width_label).pack(side="left")
-                ent = ttk.Entry(row, width=width_entry)
+                spec = next((item for item in PARAMETER_FORM_SPECS if item.key == key), None)
+                if spec is not None and getattr(spec, "options", ()):
+                    var = tk.StringVar(value="")
+                    ent = ttk.Combobox(
+                        row,
+                        width=width_entry,
+                        textvariable=var,
+                        values=spec.options,
+                        state="readonly",
+                    )
+                    self.entry_vars[key] = var
+                else:
+                    ent = ttk.Entry(row, width=width_entry)
                 ent.pack(side="left", padx=(6, 0))
                 self.entries[key] = ent
                 return ent
@@ -261,7 +274,8 @@ if GUI_AVAILABLE:
         def _read_entries_to_params(self):
             target = dict(self._current_params_dict())
             for k, ent in self.entries.items():
-                s = ent.get().strip()
+                raw_value = self.entry_vars[k].get() if k in self.entry_vars else ent.get()
+                s = raw_value.strip()
                 if s == "":
                     continue
 
@@ -303,9 +317,16 @@ if GUI_AVAILABLE:
             self._set_view_label()
             p_dict = normalize_params_dict(p_dict)
             for k, ent in self.entries.items():
-                ent.delete(0, "end")
+                if k in self.entry_vars:
+                    self.entry_vars[k].set("")
+                else:
+                    ent.delete(0, "end")
                 if k in p_dict:
-                    ent.insert(0, fmt_num(p_dict.get(k)))
+                    value = fmt_num(p_dict.get(k))
+                    if k in self.entry_vars:
+                        self.entry_vars[k].set(value)
+                    else:
+                        ent.insert(0, value)
 
         def _time_grid(self):
             t0ps = safe_float(self.ent_t0ps.get(), -5.0)

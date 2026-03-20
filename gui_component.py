@@ -25,12 +25,21 @@ class ParameterSpec:
     label: str
     value_type: str = "float"
     note: str = ""
+    options: tuple[str, ...] = ()
 
 
 PARAMETER_FORM_SPECS = (
     ParameterSpec("Basic", "Temperatures / hot steady-state init", "T_bath", "Bath temperature T_bath (K)"),
     ParameterSpec("Basic", "Temperatures / hot steady-state init", "use_hot_steady_init", "Use hot steady-state init (0/1)", value_type="int"),
-    ParameterSpec("Basic", "Temperatures / hot steady-state init", "hot_init_mode", "Hot init mode (manual/avg_power)", value_type="str"),
+    ParameterSpec(
+        "Basic",
+        "Temperatures / hot steady-state init",
+        "hot_init_mode",
+        "Hot init mode",
+        value_type="str",
+        note="Choose from menu",
+        options=("manual", "avg_power"),
+    ),
     ParameterSpec("Basic", "Temperatures / hot steady-state init", "T_init_eff", "Effective pre-pulse temperature T_init_eff (K)"),
     ParameterSpec("Basic", "Temperatures / hot steady-state init", "rep_rate_Hz", "Repetition rate (Hz)"),
     ParameterSpec("Basic", "Temperatures / hot steady-state init", "preheat_use_lattice_only", "Use lattice-only preheat balance (0/1)", value_type="int"),
@@ -57,7 +66,15 @@ PARAMETER_FORM_SPECS = (
     ParameterSpec("Basic", "Thermodynamics / electrons", "alpha_gap", "α_gap"),
     ParameterSpec("Basic", "Thermodynamics / electrons", "gap0_meV", "Δ0 (meV)"),
     ParameterSpec("Basic", "Thermodynamics / electrons", "gap_eta_coupling", "gap-eta coupling"),
-    ParameterSpec("Basic", "Spin heat capacity", "sw_model", "C_sw model (magnon/AT3)", value_type="str"),
+    ParameterSpec(
+        "Basic",
+        "Spin heat capacity",
+        "sw_model",
+        "C_sw model",
+        value_type="str",
+        note="Choose from menu",
+        options=("magnon", "AT3"),
+    ),
     ParameterSpec("Basic", "Spin heat capacity", "Cs_scale", "Cs scale"),
     ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J1_old_K", "J1 old (K)"),
     ParameterSpec("Spin / Magnon", "J1/J2 renormalization", "J2_old_K", "J2 old (K)"),
@@ -70,7 +87,15 @@ PARAMETER_FORM_SPECS = (
     ParameterSpec("Spin / Magnon", "Legacy fallback (AT^3)", "A_sw_2q", "A_sw (T<TR) (J/mol/K^4)", note="Legacy AT^3 branch"),
     ParameterSpec("Spin / Magnon", "Legacy fallback (AT^3)", "A_sw_1q", "A_sw (TR<T<TN) (J/mol/K^4)", note="Legacy AT^3 branch"),
     ParameterSpec("Eta", "Eta switches / interpretation", "eta_enable", "eta_enable (0/1)", value_type="int"),
-    ParameterSpec("Eta", "Eta switches / interpretation", "eta_mode", "eta_mode (second/first)", value_type="str"),
+    ParameterSpec(
+        "Eta",
+        "Eta switches / interpretation",
+        "eta_mode",
+        "eta_mode",
+        value_type="str",
+        note="Choose from menu",
+        options=("second", "first"),
+    ),
     ParameterSpec("Eta", "Eta switches / interpretation", "eta_sign", "eta_sign (+1/-1)", value_type="int"),
     ParameterSpec("Eta", "Eta switches / interpretation", "eta_clip", "eta_clip"),
     ParameterSpec("Eta", "Eta kinetics", "Gamma_eta", "Gamma_eta (1/s)"),
