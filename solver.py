@@ -2,7 +2,7 @@
 """
 solver.py
 ---------
-NdSb 3TM (+ m + eta) model, ODE RHS, simulation helper, and energy diagnostics.
+NdSb 3TM (+ m + eta/phi) model, ODE RHS, simulation helper, and energy diagnostics.
 
 Split out from ndsb_3tm_gui_magnon_compact.py.
 """
@@ -142,6 +142,34 @@ class NdSb3TM:
         tau = tau0 + slow
         return float(np.clip(tau, 1e-13, float(self.p["tau_m_max"])))
 
+    # ---- eta / phi representation helpers ----
+    def eta_representation(self) -> str:
+        rep = str(self.p.get("eta_representation", "scalar")).strip().lower()
+        return "cos2phi" if rep in {"cos2phi", "phi", "angle", "director"} else "scalar"
+
+    def _eta_gamma(self, Ts: float) -> float:
+        TR = float(self.p["TR"])
+        Gamma0 = float(self.p.get("Gamma_eta", 5e11))
+        Gamma_low_frac = float(self.p.get("Gamma_eta_low_frac", 1e-3))
+        dT = float(self.p.get("eta_dT", 0.3))
+        s = 1.0 / (1.0 + math.exp((TR - Ts) / max(dT, 1e-6)))
+        return float(Gamma0 * (Gamma_low_frac + (1.0 - Gamma_low_frac) * s))
+
+    def _phi_wrap(self, phi: float) -> float:
+        phi = float(phi)
+        period = math.pi
+        phi = math.fmod(phi, period)
+        if phi < 0.0:
+            phi += period
+        return phi
+
+    def _phi_to_eta(self, phi: float) -> float:
+        return float(np.clip(math.cos(2.0 * self._phi_wrap(phi)), -1.0, 1.0))
+
+    def _eta_to_phi_proxy(self, eta: float) -> float:
+        eta_clip = float(np.clip(eta, -1.0, 1.0))
+        return 0.5 * math.acos(eta_clip)
+
     # ---- eta potential (2nd/1st order) & dynamics ----
     def a_eta(self, Ts: float, m: float) -> float:
         TR = float(self.p["TR"])
@@ -164,14 +192,7 @@ class NdSb3TM:
         if int(self.p.get("eta_enable", 1)) == 0:
             return 0.0
 
-        TR = float(self.p["TR"])
-        Gamma0 = float(self.p.get("Gamma_eta", 5e11))
-        Gamma_low_frac = float(self.p.get("Gamma_eta_low_frac", 1e-3))
-        dT = float(self.p.get("eta_dT", 0.3))
-
-        s = 1.0 / (1.0 + math.exp((TR - Ts)/max(dT, 1e-6)))
-        Gamma = Gamma0 * (Gamma_low_frac + (1.0 - Gamma_low_frac)*s)
-
+        Gamma = self._eta_gamma(Ts)
         return -Gamma * self.dF_deta(float(eta), float(Ts), float(m))
 
     def F_eta(self, eta: float, Ts: float, m: float) -> float:
@@ -232,11 +253,81 @@ class NdSb3TM:
         return float(near[0])
 
     def eta_init(self, Ts: float) -> float:
+        if self.eta_representation() == "cos2phi":
+            return self._phi_to_eta(self.phi_init(Ts))
         m0 = self.m_eq(Ts)
         prefer_sign = int(self.p.get("eta_sign", +1))
         eta0 = self.eta_eq(Ts, m0, prefer_sign=prefer_sign)
         clipv = float(self.p.get("eta_clip", 1.2))
         return float(np.clip(eta0, -clipv, clipv))
+
+    # ---- angle-based reorientation model: eta = cos(2 phi) ----
+    def F_phi(self, phi: float, Ts: float, m: float) -> float:
+        K = self.a_eta(Ts, m)
+        K4 = float(self.p.get("b_eta", 1.0))
+        s2 = math.sin(self._phi_wrap(phi)) ** 2
+        return float(K * s2 + K4 * (s2 ** 2))
+
+    def dF_dphi(self, phi: float, Ts: float, m: float) -> float:
+        K = self.a_eta(Ts, m)
+        K4 = float(self.p.get("b_eta", 1.0))
+        s = math.sin(self._phi_wrap(phi))
+        c = math.cos(self._phi_wrap(phi))
+        return float(2.0 * s * c * (K + 2.0 * K4 * (s ** 2)))
+
+    def phi_eq(self, Ts: float, m: float, prefer_sign: int = +1) -> float:
+        K = float(self.a_eta(Ts, m))
+        K4 = float(self.p.get("b_eta", 1.0))
+        prefer_sign = +1 if prefer_sign >= 0 else -1
+
+        cand = [0.0, 0.5 * math.pi]
+        if K4 > 0.0:
+            x = -K / (2.0 * K4)
+            if 0.0 < x < 1.0 and np.isfinite(x):
+                phi = math.asin(math.sqrt(x))
+                cand.extend([phi, math.pi - phi])
+
+        vals = [(self.F_phi(phi, Ts, m), self._phi_wrap(phi)) for phi in cand]
+        vals.sort(key=lambda x: x[0])
+        Fmin = vals[0][0]
+        near = [phi for (Fv, phi) in vals if abs(Fv - Fmin) <= 1e-12 * (1.0 + abs(Fmin))]
+
+        if len(near) <= 1:
+            return float(near[0])
+
+        def branch_rank(phi: float):
+            eta = self._phi_to_eta(phi)
+            sign_rank = 0 if eta == 0.0 or math.copysign(1.0, eta) == prefer_sign else 1
+            return (sign_rank, abs(phi - (0.0 if prefer_sign >= 0 else 0.5 * math.pi)))
+
+        near_sorted = sorted(near, key=branch_rank)
+        return float(near_sorted[0])
+
+    def phi_init(self, Ts: float) -> float:
+        m0 = self.m_eq(Ts)
+        prefer_sign = int(self.p.get("eta_sign", +1))
+        return self.phi_eq(Ts, m0, prefer_sign=prefer_sign)
+
+    def dphi_dt(self, phi: float, Ts: float, m: float) -> float:
+        if int(self.p.get("eta_enable", 1)) == 0:
+            return 0.0
+        Gamma = self._eta_gamma(Ts)
+        return -Gamma * self.dF_dphi(float(phi), float(Ts), float(m))
+
+    def _op_state_to_eta_phi(self, op_state: float) -> Dict[str, float]:
+        if self.eta_representation() == "cos2phi":
+            phi = self._phi_wrap(op_state)
+            eta = self._phi_to_eta(phi)
+            return {"phi": float(phi), "eta": float(eta), "op_state": float(phi)}
+        eta_clip = float(self.p.get("eta_clip", 1.2))
+        eta = float(np.clip(op_state, -eta_clip, eta_clip))
+        phi = self._eta_to_phi_proxy(eta)
+        return {"phi": float(phi), "eta": float(eta), "op_state": float(eta)}
+
+    def _d_op_dt(self, op_state: float, Ts: float, m: float) -> float:
+        if self.eta_representation() == "cos2phi":
+            return self.dphi_dt(op_state, Ts, m)
+        return self.deta_dt(op_state, Ts, m)
 
     # ---- electron specific heat ----
     def gap_meV(self, Ts: float, m: Optional[float] = None, eta: Optional[float] = None) -> float:
@@ -396,23 +487,30 @@ class NdSb3TM:
             "P_sl": float(P_sl),
         }
 
-    def _clip_state(self, Te: float, Ts: float, Tl: float, m: float, eta: float) -> Dict[str, float]:
-        eta_clip = float(self.p.get("eta_clip", 1.2))
-        return {
+    def _clip_state(self, Te: float, Ts: float, Tl: float, m: float, op_state: float) -> Dict[str, float]:
+        state = {
             "Te": clipT(Te, 1e-6, 8e4),
             "Ts": clipT(Ts, 1e-6, 5e4),
             "Tl": clipT(Tl, 1e-6, 5e4),
             "m": float(np.clip(m, 0.0, 1.2)),
-            "eta": float(np.clip(eta, -eta_clip, eta_clip)),
         }
+        if self.eta_representation() == "cos2phi":
+            state["op_state"] = self._phi_wrap(op_state)
+        else:
+            eta_clip = float(self.p.get("eta_clip", 1.2))
+            state["op_state"] = float(np.clip(op_state, -eta_clip, eta_clip))
+        return state
 
-    def _state_eval(self, t: float, Te: float, Ts: float, Tl: float, m: float, eta: float) -> Dict[str, float]:
-        state = self._clip_state(Te, Ts, Tl, m, eta)
+    def _state_eval(self, t: float, Te: float, Ts: float, Tl: float, m: float, op_state: float) -> Dict[str, float]:
+        state = self._clip_state(Te, Ts, Tl, m, op_state)
         Te = state["Te"]
         Ts = state["Ts"]
         Tl = state["Tl"]
         m = state["m"]
-        eta = state["eta"]
+        op_state = state["op_state"]
+        op_map = self._op_state_to_eta_phi(op_state)
+        eta = op_map["eta"]
+        phi = op_map["phi"]
 
         Ce = self.Ce(Te, Ts, m=m, eta=eta)
         Cs = self.Cs(Ts)
@@ -443,19 +541,24 @@ class NdSb3TM:
             "Sin": source,
             "meq": meq,
             "tau_m": tau_m,
+            "phi": phi,
+            "op_state": op_state,
             "dTe": (source - pw["P_es"] - pw["P_el"] - Qe) / Ce,
             "dTs": (pw["P_es"] - pw["P_sl"] - Qs) / Cs,
             "dTl": (pw["P_el"] + pw["P_sl"] - Ql) / Cl,
             "dm": -(m - meq) / tau_m,
-            "deta": self.deta_dt(eta, Ts, m),
+            "deta": -2.0 * math.sin(2.0 * phi) * self.dphi_dt(phi, Ts, m) if self.eta_representation() == "cos2phi" else self.deta_dt(eta, Ts, m),
+            "dphi": self.dphi_dt(phi, Ts, m) if self.eta_representation() == "cos2phi" else 0.0,
+            "dop": self._d_op_dt(op_state, Ts, m),
             **pw,
+            **op_map,
         }
 
     # ---- RHS ----
     def rhs(self, t: float, y):
-        Te, Ts, Tl, m, eta = y
-        eval_state = self._state_eval(t, Te, Ts, Tl, m, eta)
-        return [eval_state["dTe"], eval_state["dTs"], eval_state["dTl"], eval_state["dm"], eval_state["deta"]]
+        Te, Ts, Tl, m, op_state = y
+        eval_state = self._state_eval(t, Te, Ts, Tl, m, op_state)
+        return [eval_state["dTe"], eval_state["dTs"], eval_state["dTl"], eval_state["dm"], eval_state["dop"]]
 
     def simulate_aligned(self, t_eval, y0=None, method="Radau",
                          rtol=1e-5, atol=1e-8, max_step=None, with_diag: bool = False):
@@ -467,7 +570,8 @@ class NdSb3TM:
                 T0_eff = float(init_info["T_init_eff_used"])
             else:
                 T0_eff = Tb
-            y0 = [T0_eff, T0_eff, T0_eff, self.m_eq(T0_eff), self.eta_init(T0_eff)]
+            op0 = self.phi_init(T0_eff) if self.eta_representation() == "cos2phi" else self.eta_init(T0_eff)
+            y0 = [T0_eff, T0_eff, T0_eff, self.m_eq(T0_eff), op0]
         else:
             init_info["T_init_eff_used"] = float(y0[0])
 
@@ -493,13 +597,32 @@ class NdSb3TM:
         if sol.y.shape[1] != t_eval.size:
             raise RuntimeError(f"Solver returned {sol.y.shape[1]} points, expected {t_eval.size}")
 
-        Te, Ts, Tl, m, eta = sol.y
+        Te, Ts, Tl, m, op_state = sol.y
         m = np.clip(m, 0.0, 1.0)
-        eta = np.clip(eta, -1.0, 1.0)
+        if self.eta_representation() == "cos2phi":
+            phi = np.mod(op_state, math.pi)
+            eta = np.clip(np.cos(2.0 * phi), -1.0, 1.0)
+            aux = phi
+        else:
+            eta_clip = float(self.p.get("eta_clip", 1.2))
+            eta = np.clip(op_state, -eta_clip, eta_clip)
+            phi = np.array([self._eta_to_phi_proxy(v) for v in eta], dtype=float)
+            aux = eta
 
         S_m = float(self.p["S_offset"]) + float(self.p["S_amp"]) * (m ** float(self.p["S_power"]))
 
-        out = {"t": sol.t, "Te": Te, "Ts": Ts, "Tl": Tl, "m": m, "eta": eta, "S_m": S_m}
+        out = {
+            "t": sol.t,
+            "Te": Te,
+            "Ts": Ts,
+            "Tl": Tl,
+            "m": m,
+            "eta": eta,
+            "phi": phi,
+            "aux": aux,
+            "eta_representation": self.eta_representation(),
+            "S_m": S_m,
+        }
         out["T_bath"] = float(self.p["T_bath"])
         out["T_init_eff_used"] = float(init_info["T_init_eff_used"])
         if "P_avg_preheat" in init_info:
@@ -540,7 +663,7 @@ def energy_diagnostics(model: NdSb3TM, sim: dict):
     Ts = np.asarray(sim["Ts"], dtype=float)
     Tl = np.asarray(sim["Tl"], dtype=float)
     m = np.asarray(sim["m"], dtype=float)
-    eta = np.asarray(sim.get("eta", np.zeros_like(t)), dtype=float)
+    op_state = np.asarray(sim.get("aux", sim.get("eta", np.zeros_like(t))), dtype=float)
 
     n = t.size
     if n < 2:
@@ -568,7 +691,7 @@ def energy_diagnostics(model: NdSb3TM, sim: dict):
     Cl_arr = np.empty(n, dtype=float)
 
     for i in range(n):
-        state = model._state_eval(float(t[i]), Te[i], Ts[i], Tl[i], m[i], eta[i])
+        state = model._state_eval(float(t[i]), Te[i], Ts[i], Tl[i], m[i], op_state[i])
         Ce = state["Ce"]
         Cs = state["Cs"]
         Cl = state["Cl"]

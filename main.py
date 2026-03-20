@@ -388,10 +388,12 @@ if GUI_AVAILABLE:
             self.axM.clear()
             self.axM.plot(tps, sim["m"], label="m(t)")
             self.axM.plot(tps, sim["eta"], label="eta(t)")
+            if np.isfinite(np.asarray(sim.get("phi", []), dtype=float)).any():
+                self.axM.plot(tps, sim["phi"], label="phi(t) [rad]", linestyle="--", alpha=0.8)
             self.axM.plot(tps, sim["S_m"], label="S(t)=offset+amp*m^p")
             self.axM.set_title("Order parameter / proxy")
             self.axM.set_xlabel("time (ps)")
-            self.axM.set_ylabel("m / eta / S")
+            self.axM.set_ylabel("m / eta / phi / S")
             self.axM.grid(alpha=0.3)
 
             # -------- diag: effective couplings & power --------
@@ -483,6 +485,10 @@ if GUI_AVAILABLE:
                     f"[sim:{self.current_view}] max Te={np.max(sim['Te']):.2f} K | "
                     f"max Ts={np.max(sim['Ts']):.2f} K | max Tl={np.max(sim['Tl']):.2f} K | "
                     f"final m={sim['m'][-1]:.3f} | final eta={sim['eta'][-1]:.3f}"
+                    + (
+                        f" | final phi={sim['phi'][-1]:.3f} rad"
+                        if sim.get("eta_representation", "scalar") == "cos2phi" else ""
+                    )
                 )
 
                 diag = sim.get("diag", None)
@@ -620,6 +626,8 @@ def _cli_demo():
     print("  max Tl =", float(np.max(sim["Tl"])))
     print("  final m =", float(sim["m"][-1]))
     print("  final eta =", float(sim["eta"][-1]))
+    if sim.get("eta_representation", "scalar") == "cos2phi":
+        print("  final phi =", float(sim["phi"][-1]))
 
 
 if __name__ == "__main__":

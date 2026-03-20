@@ -233,6 +233,8 @@ def _get_bounds_for_keys(keys):
             lb.append(1e-6); ub.append(1.0)
         elif k == "eta_dT":
             lb.append(0.01); ub.append(10.0)
+        elif k == "eta_representation":
+            lb.append(-np.inf); ub.append(np.inf)
         elif k in ["a_eta0", "b_eta", "c_eta"]:
             lb.append(0.0); ub.append(1e4)
         elif k == "g_m2eta2":

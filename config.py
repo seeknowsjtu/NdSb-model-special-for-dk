@@ -64,6 +64,7 @@ def default_params() -> dict:
     # eta (spin reorientation / 1q-2q sector) dynamics
     # ========================================================
     p["eta_enable"] = 1
+    p["eta_representation"] = "scalar"  # "scalar" or "cos2phi"
     p["eta_mode"] = "second"       # "second" or "first"
     p["Gamma_eta"] = 5e11          # 1/s
     p["Gamma_eta_low_frac"] = 1e-3
@@ -71,6 +72,11 @@ def default_params() -> dict:
 
     # Landau-like eta free-energy coefficients
     # a(T,m) = a_eta0 * (Ts-TR)/TR + g_m2eta2 * m^2
+    # When eta_representation == "cos2phi":
+    #   K(T,m)  := a_eta0 * (Ts-TR)/TR + g_m2eta2 * m^2
+    #   F(phi)  = K(T,m) * sin^2(phi) + b_eta * sin^4(phi)
+    #   eta     = cos(2 phi)
+    # eta_mode / c_eta are only used by the legacy scalar eta Landau model.
     p["a_eta0"] = 2.0
     p["b_eta"] = 20.0
     p["c_eta"] = 200.0             # used only for first-order mode

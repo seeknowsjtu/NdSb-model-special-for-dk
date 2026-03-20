@@ -34,13 +34,15 @@
 - `m(t)`：磁有序参量；
 - `eta(t)`：1q/2q 自旋重取向相关自由度。
 
-因此模型实际求解的是五个耦合变量的常微分方程组：
+因此模型实际求解的是五个耦合变量的常微分方程组。默认仍是
+`[Te, Ts, Tl, m, eta]`，但也支持把第五个自由度切换为角变量 `phi`，
+并通过 `eta = cos(2phi)` 输出方向相关序参量：
 
 - `Te(t)`
 - `Ts(t)`
 - `Tl(t)`
 - `m(t)`
-- `eta(t)`
+- `eta(t)` 或 `phi(t)`
 
 ### 2. 物理上更细的热容建模
 
@@ -183,8 +185,13 @@ python main.py
 ### 自旋重取向参量 `eta`
 
 - `eta` 用于描述 `TR` 附近的重取向自由度；
-- 支持 **二级相变式** 与 **一级相变式** 两种自由能形式；
-- 由 `Gamma_eta`、`a_eta0`、`b_eta`、`c_eta` 等参数控制。
+- 支持两种表示方式：
+  - `eta_representation = "scalar"`：保留原始单标量 Landau 模型，支持 **二级相变式** 与 **一级相变式** 两种自由能形式；
+  - `eta_representation = "cos2phi"`：把第五个自由度解释为 AFM 方向角 `phi`，并输出 `eta = cos(2phi)`。
+- 在 `cos2phi` 模式下，采用
+  `F(phi) = K(T,m) sin^2(phi) + b_eta sin^4(phi)`，
+  其中 `K(T,m) = a_eta0 * (Ts-TR)/TR + g_m2eta2 * m^2`；
+- `Gamma_eta`、`a_eta0`、`b_eta`、`g_m2eta2` 在两种模式下都有效，`c_eta` 与 `eta_mode` 只用于标量 Landau 模型。
 
 ### 光谱代理量 `S(t)`
 
@@ -272,7 +279,7 @@ python main.py
 4. 点击 **Simulate**。
 5. 在右侧查看四张图：
    - 温度演化；
-   - `m / eta / S`；
+   - `m / eta / phi / S`；
    - 有效耦合；
    - 功率流。
 
@@ -282,7 +289,8 @@ python main.py
 
 - 读取默认参数；
 - 运行一段固定时间窗口内的仿真；
-- 在终端打印 `max Te / max Ts / max Tl / final m / final eta`。
+- 在终端打印 `max Te / max Ts / max Tl / final m / final eta`；
+- 若 `eta_representation = "cos2phi"`，还会额外打印 `final phi`。
 
 如果你要做真正的批处理拟合，建议直接在 Python 脚本中导入 `NdSb3TM`、`load_csv_auto`、`fit_params` 自行调用。
 
@@ -316,6 +324,7 @@ GUI 主要分为四个参数标签页：
 用于设置：
 
 - 是否启用 `eta`；
+- `eta_representation`（标量 `eta` 或角变量 `phi -> eta=cos(2phi)`）；
 - `eta_mode`（一级/二级）；
 - `eta` 的符号、裁剪范围；
 - `Gamma_eta`、`eta_dT`；
@@ -370,12 +379,14 @@ GUI 主要分为四个参数标签页：
 
 - `m(t)`
 - `eta(t)`
+- `phi(t)`（若启用 `cos2phi` 模式）
 - `S_m(t)`
 
 可用于观察：
 
 - 磁有序是否塌陷；
 - 重取向自由度是否响应；
+- AFM 方向角是否发生重取向；
 - 用于拟合的光谱代理量如何变化。
 
 ### 有效耦合图（Effective couplings）
@@ -636,6 +647,7 @@ p_best, res = fit_params(t, Te, None, p0, fit_keys)
 优先检查：
 
 - `eta_enable`
+- `eta_representation`
 - `eta_mode`
 - `Gamma_eta`
 - `a_eta0`、`b_eta`、`c_eta`
