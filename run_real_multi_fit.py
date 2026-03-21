@@ -20,9 +20,9 @@ CSV_FILES = [
     "deltak12k_1p0mW.csv",
     "deltak12k_2p0mW.csv",
     "deltak12k_2p5mW.csv",
-    "deltak12k_3p0mW.csv",
-    "deltak12k_3p5mW.csv",
-    "deltak12k_4p0mW.csv",
+    # "deltak12k_3p0mW.csv",
+    # "deltak12k_3p5mW.csv",
+    # "deltak12k_4p0mW.csv",
 ]
 
 DATA_DIR = Path(".")
@@ -41,7 +41,14 @@ PROGRESS_EVERY = 5
 OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
 
-ROUND1_GLOBAL_KEYS = ["G_es0", "G_sl0", "Gamma_eta", "a_eta0", "t0_pulse"]
+ROUND1_GLOBAL_KEYS = [
+    "S_scale",
+    "G_es0",
+    "G_sl0",
+    "Gamma_eta",
+    "a_eta0",
+    "t0_pulse",
+]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = ["G_es0", "G_sl0", "Gamma_eta", "a_eta0", "t0_pulse"]
 
 # =========================
@@ -103,7 +110,7 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         datasets,
         p0,
         global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=["dt_local"],
+        local_keys=["dt_local", "A_obs", "B_obs"],
         observable_mode="eta",
         # observable_mode="eta_m2",
         sigma_S=SIGMA_S,
