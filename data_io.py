@@ -74,7 +74,7 @@ POSITIVE_FIT_KEYS = {
 }
 
 LOCAL_KEY_BOUNDS = {
-    "dt_local": (-0.5e-12, 0.5e-12),
+    "dt_local": (-0.3e-12, 0.3e-12),
     "A_obs": (-10.0, 10.0),
     "B_obs": (-2.0, 2.0),
 }
@@ -412,7 +412,12 @@ def fit_params(t, Te, S, p0, fit_keys, sigma_Te=2.0, sigma_S=0.02):
     lb, ub = _build_fit_bounds(fit_keys, _get_bounds_for_keys)
 
     x0 = _pack_params(p0, fit_keys)
-    x0 = np.minimum(np.maximum(x0, lb + 1e-12), ub - 1e-12)
+
+    span = ub - lb
+    eps = np.full_like(x0, 1e-12, dtype=float)
+    finite = np.isfinite(lb) & np.isfinite(ub)
+    eps[finite] = np.minimum(1e-12, 0.1 * np.maximum(span[finite], 0.0))
+    x0 = np.minimum(np.maximum(x0, lb + eps), ub - eps)
 
     t = np.asarray(t, float)
     if t.ndim != 1 or t.size < 5:
@@ -553,7 +558,11 @@ def fit_params_multi(
     x0 = np.concatenate(x0_parts)
     lb = np.concatenate(lb_parts)
     ub = np.concatenate(ub_parts)
-    x0 = np.minimum(np.maximum(x0, lb + 1e-12), ub - 1e-12)
+    span = ub - lb
+    eps = np.full_like(x0, 1e-12, dtype=float)
+    finite = np.isfinite(lb) & np.isfinite(ub)
+    eps[finite] = np.minimum(1e-12, 0.1 * np.maximum(span[finite], 0.0))
+    x0 = np.minimum(np.maximum(x0, lb + eps), ub - eps)
 
     n_global = len(global_keys)
     n_local = len(local_keys)

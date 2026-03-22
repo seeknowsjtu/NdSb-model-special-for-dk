@@ -173,7 +173,7 @@ def _print_bound_warnings(fit_bundle) -> None:
 
     for row in fit_bundle["dataset_summary"]:
         dt_local_ps = float(row.get("dt_local_ps", float("nan")))
-        if abs(dt_local_ps) >= 0.475:
+        if abs(dt_local_ps) >= 0.275:
             warning_lines.append(
                 f"[warning] dt_local near bound: {row['dataset_name']} dt_local_ps={dt_local_ps:.3f}"
             )
@@ -270,9 +270,9 @@ def main() -> None:
             print_fit_summary(smoke_bundle, smoke_res, smoke_exports, smoke_t)
             print("===== SMOKE TEST END =====\n")
 
-            # 用 smoke test 的最优全局参数作为正式跑的起点
-            p0 = dict(p0)
-            p0.update(smoke_bundle["best_global_params"])
+            # # 用 smoke test 的最优全局参数作为正式跑的起点
+            # p0 = dict(p0)
+            # p0.update(smoke_bundle["best_global_params"])
 
         # ---- 第二步：正式第一轮 ----
         print("\n===== FULL FIT START =====")
