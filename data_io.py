@@ -343,6 +343,18 @@ def _get_multi_local_bounds(keys):
 # ============================================================
 # Observable mapping helpers
 # ============================================================
+def _compute_chi2q(sim):
+    eta_repr = str(sim.get("eta_representation", "")).strip().lower()
+    phi = sim.get("phi")
+    if eta_repr == "cos2phi" and phi is not None:
+        phi = np.asarray(phi, dtype=float)
+        return np.abs(np.sin(2.0 * phi))
+
+    eta = np.asarray(sim["eta"], dtype=float)
+    eta_clip = np.clip(eta, -1.0, 1.0)
+    return np.sqrt(np.maximum(0.0, 1.0 - eta_clip ** 2))
+
+
 def build_observable(sim, p_global, p_local, observable_mode):
     """
     Map simulator output to the measured S-like observable.
@@ -356,7 +368,8 @@ def build_observable(sim, p_global, p_local, observable_mode):
     p_local : dict
         Dataset-specific local parameter dictionary.
     observable_mode : str
-        One of ``"m"``, ``"eta"``, or ``"eta_m2"``.
+        One of ``"m"``, ``"eta"``, ``"eta_m2"``, ``"eta_m1_mult"``,
+        ``"eta_m2_mult"``, ``"chi2q"``, or ``"m_chi2q"``.
     """
     mode = str(observable_mode).strip().lower()
     if mode == "m":
@@ -372,9 +385,21 @@ def build_observable(sim, p_global, p_local, observable_mode):
     if mode == "eta_m2":
         lam_m2 = float(p_global.get("lam_m2", 0.0))
         return B_obs + A_obs * (eta + lam_m2 * (m ** 2))
+    if mode == "eta_m1_mult":
+        return B_obs + A_obs * (m * eta)
+    if mode == "eta_m2_mult":
+        return B_obs + A_obs * ((m ** 2) * eta)
+    if mode == "chi2q":
+        chi2q = _compute_chi2q(sim)
+        return B_obs + A_obs * chi2q
+    if mode == "m_chi2q":
+        chi2q = _compute_chi2q(sim)
+        return B_obs + A_obs * (m * chi2q)
 
     raise ValueError(
-        f"Unsupported observable_mode='{observable_mode}'. Expected one of: m, eta, eta_m2."
+        "Unsupported observable_mode='{mode}'. Expected one of: "
+        "m, eta, eta_m2, eta_m1_mult, eta_m2_mult, chi2q, m_chi2q."
+        .format(mode=observable_mode)
     )
 
 
