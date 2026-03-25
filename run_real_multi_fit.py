@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+import numpy as np
 
 from config import default_params, normalize_params_dict
 from data_io import (
@@ -97,6 +98,15 @@ def make_initial_params() -> dict:
     p0["lam_m2"] = 0.0
 
     return p0
+
+
+def infer_observable_scale_from_datasets(datasets: list[dict]) -> tuple[float, float]:
+    all_s = np.concatenate([np.asarray(ds["S"], dtype=float) for ds in datasets])
+    global_min = float(np.min(all_s))
+    global_max = float(np.max(all_s))
+    b_obs0 = max(0.0, global_min)
+    a_obs0 = max(global_max - b_obs0, 1e-4)
+    return a_obs0, b_obs0
 
 # =========================
 # 6. 单次拟合任务
@@ -246,6 +256,9 @@ def main() -> None:
         print_dataset_summary(datasets)
 
         p0 = make_initial_params()
+        a_obs0, b_obs0 = infer_observable_scale_from_datasets(datasets)
+        p0["A_obs"] = a_obs0
+        p0["B_obs"] = b_obs0
 
         # ---- 第一步：smoke test ----
         if SMOKE_TEST:

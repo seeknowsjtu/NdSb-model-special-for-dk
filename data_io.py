@@ -68,13 +68,14 @@ POSITIVE_FIT_KEYS = {
 
     # ARPES mapping positive params
     "S_amp", "S_power",
+    "A_obs",
 
 }
 
 LOCAL_KEY_BOUNDS = {
     "dt_local": (-0.3e-12, 0.3e-12),
-    "A_obs": (-10.0, 10.0),
-    "B_obs": (-2.0, 2.0),
+    "A_obs": (1e-5, 2e-2),
+    "B_obs": (0.0, 1e-2),
 }
 
 
@@ -351,9 +352,9 @@ def _get_bounds_for_keys(keys):
         elif k == "ThetaD":
             lb.append(10.0); ub.append(1000.0)
         elif k == "A_obs":
-            lb.append(-10.0); ub.append(10.0)
+            lb.append(1e-5); ub.append(2e-2)
         elif k == "B_obs":
-            lb.append(-2.0); ub.append(2.0)
+            lb.append(0.0); ub.append(1e-2)
         else:
             lb.append(-np.inf); ub.append(np.inf)
 
