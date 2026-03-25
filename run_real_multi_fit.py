@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+import numpy as np
 
 from config import default_params, normalize_params_dict
 from data_io import (
@@ -64,6 +65,8 @@ def load_dataset(path: Path) -> dict:
     if S is None:
         raise ValueError(f"{path.name} has no S column.")
 
+    # Round-1 uses a baseline-subtracted S so B_obs does not need to be fitted.
+    S_sub, baseline_value, baseline_npts, baseline_method = preprocess_signal_baseline(t, S)
     fluence_ratio = parse_fluence_ratio_from_name(str(path))
 
     return {
@@ -73,9 +76,37 @@ def load_dataset(path: Path) -> dict:
         "Te": Te,
         "Ts": Ts,
         "Tl": Tl,
-        "S": S,
+        "S_raw": S,
+        "S": S_sub,
+        "baseline_value": baseline_value,
+        "baseline_npts": baseline_npts,
+        "baseline_method": baseline_method,
         "fluence_ratio": fluence_ratio,
     }
+
+
+def preprocess_signal_baseline(t, S):
+    t = np.asarray(t, dtype=float)
+    S = np.asarray(S, dtype=float)
+    if t.shape != S.shape:
+        raise ValueError("preprocess_signal_baseline: t and S must have the same shape.")
+    if S.ndim != 1:
+        raise ValueError("preprocess_signal_baseline: t and S must be 1D arrays.")
+
+    neg_mask = t < 0.0
+    neg_count = int(np.count_nonzero(neg_mask))
+    if neg_count >= 2:
+        baseline_pts = S[neg_mask]
+        baseline_method = "negative_delay_mean"
+    else:
+        npts = min(3, S.size)
+        baseline_pts = S[:npts]
+        baseline_method = "early_points_mean"
+
+    baseline_value = float(np.mean(baseline_pts)) if baseline_pts.size > 0 else 0.0
+    S_sub = S - baseline_value
+    baseline_npts = int(baseline_pts.size)
+    return S_sub, baseline_value, baseline_npts, baseline_method
 
 # =========================
 # 4. 打印数据摘要
@@ -89,7 +120,9 @@ def print_dataset_summary(datasets: list[dict]) -> None:
         print(
             f"  {ds['name']:>22s} | "
             f"N={n:3d} | "
-            f"fluence_ratio={ds['fluence_ratio']:.2f}"
+            f"fluence_ratio={ds['fluence_ratio']:.2f} | "
+            f"baseline={ds.get('baseline_value', 0.0):.4e} "
+            f"(n={ds.get('baseline_npts', 0)}, {ds.get('baseline_method', 'n/a')})"
         )
     print(f"Total points across all datasets = {total_points}")
 
@@ -104,7 +137,7 @@ def make_initial_params() -> dict:
     p0["G_es0"] *= 0.98
     p0["tau_m0"] *= 1.05
     p0["Gamma_eta"] *= 0.95
-    p0["lam_m2"] = 0.5
+    p0["lam_m2"] = 0.0
 
     return p0
 
@@ -116,9 +149,8 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         datasets,
         p0,
         global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=["dt_local", "B_obs"],
-        # observable_mode="eta",
-        observable_mode="eta_m2",
+        local_keys=["dt_local"],  # round-1: do not fit B_obs after baseline subtraction
+        observable_mode="eta",    # future comparisons: eta_m2 / eta_m1_mult / eta_m2_mult / chi2q / m_chi2q
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,
         progress_every=PROGRESS_EVERY,
