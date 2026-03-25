@@ -225,7 +225,11 @@ def default_params() -> dict:
 #     "S_scale", "t0_pulse",
 # ]
 MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
-    "G_es0", "G_sl0", "Gamma_eta", "a_eta0", "t0_pulse",
+    "S_scale",
+    "G_es0",
+    "G_sl0",
+    "tau_m0",
+    "tau_m_crit_amp",
 ]
 
 MULTI_FIT_DEFAULT_LOCAL_KEYS = ["dt_local"]

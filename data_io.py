@@ -478,7 +478,8 @@ def fit_params(t, Te, S, p0, fit_keys, sigma_Te=2.0, sigma_S=0.02):
     Fit using Te(t) and/or S(t). Times are seconds.
 
     This function is kept intact as the legacy single-dataset fitting entry
-    point used by the existing GUI buttons.
+    point used by the existing GUI buttons. Its S-channel is the legacy
+    S_m proxy path and does not use multi-fit observable_mode.
     """
     if Te is None and S is None:
         raise ValueError("Need at least Te or S data to fit.")
