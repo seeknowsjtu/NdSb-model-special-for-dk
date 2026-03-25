@@ -160,6 +160,59 @@ def load_csv_auto(path: str):
     return t_u, Te_u, Ts_u, Tl_u, S_u, names, t_unit
 
 
+def preprocess_signal_baseline(t, S):
+    """
+    Simple baseline subtraction for S-like traces.
+
+    If at least 2 points satisfy t < 0, baseline = mean(S[t < 0]).
+    Otherwise baseline = mean(first min(3, len(S)) points).
+
+    Returns:
+        S_sub, baseline_value, baseline_npts, baseline_method
+    """
+    t_arr = np.asarray(t, dtype=float)
+    s_arr = np.asarray(S, dtype=float)
+    if t_arr.shape != s_arr.shape:
+        raise ValueError("preprocess_signal_baseline: t and S must have the same shape.")
+    if t_arr.ndim != 1:
+        raise ValueError("preprocess_signal_baseline: t and S must be 1D arrays.")
+
+    neg_mask = t_arr < 0.0
+    if int(np.count_nonzero(neg_mask)) >= 2:
+        baseline_pts = s_arr[neg_mask]
+        baseline_method = "negative_delay_mean"
+    else:
+        baseline_pts = s_arr[: min(3, s_arr.size)]
+        baseline_method = "early_points_mean"
+
+    baseline_value = float(np.mean(baseline_pts)) if baseline_pts.size > 0 else 0.0
+    baseline_npts = int(baseline_pts.size)
+    s_sub = np.asarray(s_arr - baseline_value, dtype=float)
+    return s_sub, baseline_value, baseline_npts, baseline_method
+
+
+def load_s_dataset_csv(path: str | Path) -> dict:
+    t, Te, Ts, Tl, S, _, _ = load_csv_auto(str(path))
+    if S is None:
+        raise ValueError(f"{Path(path).name} has no S column.")
+
+    S_sub, baseline_value, baseline_npts, baseline_method = preprocess_signal_baseline(t, S)
+    return {
+        "name": Path(path).name,
+        "path": str(path),
+        "t": t,
+        "Te": Te,
+        "Ts": Ts,
+        "Tl": Tl,
+        "S_raw": np.asarray(S, dtype=float),
+        "S": S_sub,
+        "baseline_value": baseline_value,
+        "baseline_npts": baseline_npts,
+        "baseline_method": baseline_method,
+        "fluence_ratio": parse_fluence_ratio_from_name(str(path)),
+    }
+
+
 # ============================================================
 # Bounds helper
 # ============================================================

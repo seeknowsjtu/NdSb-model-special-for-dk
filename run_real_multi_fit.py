@@ -3,15 +3,13 @@ from pathlib import Path
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
 
 from config import default_params, normalize_params_dict
 from data_io import (
-    load_csv_auto,
-    parse_fluence_ratio_from_name,
     fit_params_multi,
     export_multi_fit_results,
     _get_bounds_for_keys,
+    load_s_dataset_csv,
 )
 
 # =========================
@@ -61,52 +59,7 @@ ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
 # 3. 读入一个数据集
 # =========================
 def load_dataset(path: Path) -> dict:
-    t, Te, Ts, Tl, S, names, unit = load_csv_auto(str(path))
-    if S is None:
-        raise ValueError(f"{path.name} has no S column.")
-
-    # Round-1 uses a baseline-subtracted S so B_obs does not need to be fitted.
-    S_sub, baseline_value, baseline_npts, baseline_method = preprocess_signal_baseline(t, S)
-    fluence_ratio = parse_fluence_ratio_from_name(str(path))
-
-    return {
-        "name": path.name,
-        "path": str(path),
-        "t": t,
-        "Te": Te,
-        "Ts": Ts,
-        "Tl": Tl,
-        "S_raw": S,
-        "S": S_sub,
-        "baseline_value": baseline_value,
-        "baseline_npts": baseline_npts,
-        "baseline_method": baseline_method,
-        "fluence_ratio": fluence_ratio,
-    }
-
-
-def preprocess_signal_baseline(t, S):
-    t = np.asarray(t, dtype=float)
-    S = np.asarray(S, dtype=float)
-    if t.shape != S.shape:
-        raise ValueError("preprocess_signal_baseline: t and S must have the same shape.")
-    if S.ndim != 1:
-        raise ValueError("preprocess_signal_baseline: t and S must be 1D arrays.")
-
-    neg_mask = t < 0.0
-    neg_count = int(np.count_nonzero(neg_mask))
-    if neg_count >= 2:
-        baseline_pts = S[neg_mask]
-        baseline_method = "negative_delay_mean"
-    else:
-        npts = min(3, S.size)
-        baseline_pts = S[:npts]
-        baseline_method = "early_points_mean"
-
-    baseline_value = float(np.mean(baseline_pts)) if baseline_pts.size > 0 else 0.0
-    S_sub = S - baseline_value
-    baseline_npts = int(baseline_pts.size)
-    return S_sub, baseline_value, baseline_npts, baseline_method
+    return load_s_dataset_csv(path)
 
 # =========================
 # 4. 打印数据摘要

@@ -31,8 +31,9 @@ from data_io import (
     fit_params,
     fit_params_multi,
     load_csv_auto,
+    load_s_dataset_csv,
     normalize_fit_keys,
-    parse_fluence_ratio_from_name,
+    preprocess_signal_baseline,
 )
 
 # ============================================================
@@ -619,6 +620,13 @@ if GUI_AVAILABLE:
 
             try:
                 t, Te, Ts, Tl, S, names, unit = load_csv_auto(path)
+                baseline_value = None
+                baseline_npts = None
+                baseline_method = None
+                if S is not None:
+                    S_raw = np.asarray(S, dtype=float)
+                    S, baseline_value, baseline_npts, baseline_method = preprocess_signal_baseline(t, S_raw)
+                    self.data["S_raw"] = S_raw
                 self.data.update({"t": t, "Te": Te, "Ts": Ts, "Tl": Tl, "S": S, "path": path})
 
                 self._log(f"[load] {os.path.basename(path)} | time unit: {unit} | columns: {names}")
@@ -628,6 +636,11 @@ if GUI_AVAILABLE:
                     f"Tl={'yes' if Tl is not None else 'no'} | "
                     f"S={'yes' if S is not None else 'no'}"
                 )
+                if baseline_method is not None:
+                    self._log(
+                        f"[load] baseline={baseline_value:.4e} | baseline_npts={baseline_npts} | "
+                        f"baseline_method={baseline_method}"
+                    )
             except Exception as e:
                 messagebox.showerror("Load CSV failed", str(e))
                 self._log(f"[error] {e}")
@@ -643,24 +656,14 @@ if GUI_AVAILABLE:
             loaded = []
             try:
                 for path in paths:
-                    t, Te, Ts, Tl, S, names, unit = load_csv_auto(path)
-                    fluence_ratio = parse_fluence_ratio_from_name(path)
-                    dataset = {
-                        "name": os.path.basename(path),
-                        "path": path,
-                        "t": t,
-                        "Te": Te,
-                        "Ts": Ts,
-                        "Tl": Tl,
-                        "S": S,
-                        "fluence_ratio": fluence_ratio,
-                    }
-                    if S is None:
-                        raise ValueError(f"Dataset '{os.path.basename(path)}' has no S column and cannot be used for multi-fit.")
+                    dataset = load_s_dataset_csv(path)
                     loaded.append(dataset)
                     self._log(
-                        f"[multi-load] name={dataset['name']} | N={len(t)} | fluence_ratio={fluence_ratio:.3f} | "
-                        f"time unit={unit} | columns={names}"
+                        f"[multi-load] name={dataset['name']} | N={len(dataset['t'])} | "
+                        f"fluence_ratio={dataset['fluence_ratio']:.3f} | "
+                        f"baseline={dataset['baseline_value']:.4e} | "
+                        f"baseline_npts={dataset['baseline_npts']} | "
+                        f"baseline_method={dataset['baseline_method']}"
                     )
             except Exception as e:
                 messagebox.showerror("Load CSVs failed", str(e))
