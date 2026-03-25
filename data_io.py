@@ -830,6 +830,16 @@ def fit_params_multi(
         evaluated = _evaluate_dataset(best_global_params, dataset, local_x, with_diag=True)
         local_best = dict(evaluated["local_params"])
         best_local_params[dataset["name"]] = local_best
+        a_obs_summary = (
+            float(local_best["A_obs"])
+            if "A_obs" in local_keys
+            else float(best_global_params.get("A_obs", np.nan))
+        )
+        b_obs_summary = (
+            float(local_best["B_obs"])
+            if "B_obs" in local_keys
+            else float(best_global_params.get("B_obs", np.nan))
+        )
 
         rms = float(np.sqrt(np.mean((evaluated["S_fit"] - evaluated["S_exp"]) ** 2)))
         wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))
@@ -844,16 +854,8 @@ def fit_params_multi(
             "rms": rms,
             "wrms": wrms,
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
-            "A_obs": (
-                float(local_best["A_obs"])
-                if "A_obs" in local_keys
-                else float(best_global_params.get("A_obs", np.nan))
-            ),
-            "B_obs": (
-                float(local_best["B_obs"])
-                if "B_obs" in local_keys
-                else float(best_global_params.get("B_obs", np.nan))
-            ),
+            "A_obs": a_obs_summary,
+            "B_obs": b_obs_summary,
             "wall_time_sec": float(evaluated["wall_time_sec"]),
             "avg_wall_time_sec": float(evaluated["avg_wall_time_sec"]),
         })
