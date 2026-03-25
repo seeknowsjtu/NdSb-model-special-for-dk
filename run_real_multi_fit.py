@@ -271,6 +271,7 @@ def main() -> None:
             )
             print_fit_summary(smoke_bundle, smoke_res, smoke_exports, smoke_t)
             print("===== SMOKE TEST END =====\n")
+            return
 
             # # 用 smoke test 的最优全局参数作为正式跑的起点
             # p0 = dict(p0)

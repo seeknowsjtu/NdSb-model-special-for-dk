@@ -1,0 +1,71 @@
+本轮 smoke test 的目标：在 baseline-subtracted 的三组 
+𝑆
+(
+𝑡
+)
+S(t) 数据上，测试 eta-only + dt_local-only 的最小 multi-fit 是否能稳定收敛，并检查 dt_local 是否脱离边界、wrms 是否改善、以及 5 个全局参数是否保持在合理区间内。
+[Smoke test: round-1 eta-only]
+
+Date:
+Code version / commit:
+Script:
+run_real_multi_fit.py
+
+Datasets:
+- deltak12k_1p0mW.csv
+- deltak12k_2p0mW.csv
+- deltak12k_2p5mW.csv
+
+Preprocessing:
+- baseline subtraction: yes
+- baseline rule: negative-delay mean if >=2 points, otherwise first <=3 points mean
+
+Observable:
+- observable_mode = eta
+- local_keys = [dt_local]
+- lam_m2 fixed to 0.0
+- no fitted B_obs
+
+Global fit keys:
+- S_scale
+- G_es0
+- G_sl0
+- tau_m0
+- tau_m_crit_amp
+
+Local fit key:
+- dt_local only
+- dt_local bound = [-0.3, 0.3] ps
+- near-bound warning threshold = 0.275 ps
+
+Optimizer settings:
+- sigma_S = 0.02
+- method = trf
+- loss = soft_l1
+- f_scale = 1.0
+- max_nfev = 40
+- progress_every = 5
+- optimizer_verbose = 2
+- timing enabled = True
+
+Initial p0 tweaks:
+- G_el0 *= 1.02
+- G_es0 *= 0.98
+- tau_m0 *= 1.05
+- Gamma_eta *= 0.95
+- lam_m2 = 0.0
+
+Purpose of this smoke test:
+1. Check whether eta-only fit can run stably.
+2. Check whether dt_local still hits bounds.
+3. Check whether wrms is acceptable and more stable than old eta_m2/B_obs version.
+4. Check whether any global parameter is near bounds.
+5. Check whether baseline subtraction across datasets looks reasonable.
+
+Outputs to record:
+- success / status / cost / nfev
+- fitted global params
+- per-dataset rms / wrms / dt_local_ps
+- bound warnings
+- timing summary
+- export path

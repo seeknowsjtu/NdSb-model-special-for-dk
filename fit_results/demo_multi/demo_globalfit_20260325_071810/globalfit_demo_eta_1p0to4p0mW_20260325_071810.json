@@ -1,0 +1,189 @@
+{
+  "observable_mode": "eta",
+  "global_keys": [
+    "S_scale",
+    "G_es0",
+    "G_sl0",
+    "tau_m0",
+    "tau_m_crit_amp"
+  ],
+  "local_keys": [
+    "dt_local"
+  ],
+  "best_global_params": {
+    "T_bath": 4.0,
+    "use_hot_steady_init": 0,
+    "hot_init_mode": "manual",
+    "T_init_eff": 4.0,
+    "rep_rate_Hz": 500000.0,
+    "preheat_use_lattice_only": 1,
+    "preheat_max_dT": 100.0,
+    "preheat_solver_tol": 1e-06,
+    "TN": 15.0,
+    "TR": 13.0,
+    "ThetaD": 200.0,
+    "eta_enable": 1,
+    "eta_representation": "scalar",
+    "eta_mode": "second",
+    "Gamma_eta": 450000000000.0,
+    "Gamma_eta_low_frac": 0.001,
+    "eta_dT": 0.3,
+    "a_eta0": 2.0,
+    "b_eta": 20.0,
+    "c_eta": 200.0,
+    "g_m2eta2": 0.0,
+    "lam_m2": 0.0,
+    "eta_clip": 1.2,
+    "eta_sign": 1,
+    "gamma_PM_molar": 0.002,
+    "alpha_gap": 0.0,
+    "gap0_meV": 40.0,
+    "gamma_min_frac": 0.2,
+    "gap_eta_coupling": 0.0,
+    "fluence_multiplier": 8.0,
+    "fluence_base_J_m2": 1.0,
+    "delta_opt": 2e-08,
+    "pulse_width": 1.2e-13,
+    "t0_pulse": 0.0,
+    "S_scale": 1.2751955116852706e-07,
+    "G_el0": 54000000000000.0,
+    "G_es0": 26014085705636.516,
+    "G_sl0": 7841032977546.852,
+    "G_el_Tpow": 0.0,
+    "G_es_floor_frac": 0.1,
+    "G_es_m_power": 2.0,
+    "G_es_eta_coupling": 0.0,
+    "G_sl_TR_boost": 0.5,
+    "G_sl_TR_w": 1.2,
+    "G_sl_TN_boost": 0.5,
+    "G_sl_TN_w": 1.5,
+    "G_sl_eta_coupling": 0.0,
+    "tau_e_sink": 2e-10,
+    "tau_s_sink": 5e-09,
+    "tau_l_sink": 8e-10,
+    "sw_model": "magnon",
+    "A_sw_2q": 0.0025,
+    "A_sw_1q": 0.0018,
+    "J1_old_K": -0.0575,
+    "J2_old_K": 0.1367,
+    "J_renorm": 1.1029411764705883,
+    "J_2q_scale": 1.0,
+    "J_1q_scale": 1.0,
+    "S_eff": 0.5,
+    "mag_gap_meV": 0.05,
+    "magnon_grid": 32,
+    "Cs_scale": 1.0,
+    "lambda_amp": 3.0,
+    "lambda_w": 0.7,
+    "latent_amp": 2.0,
+    "latent_w": 0.5,
+    "cef_E1_meV": 1.6,
+    "cef_E2_meV": 8.8,
+    "cef_g0": 4,
+    "cef_g1": 2,
+    "cef_g2": 4,
+    "tau_m0": 1.0000078214717767e-13,
+    "tau_m_crit_amp": 1.2684921972483287e-199,
+    "nu": 1.0,
+    "eps_crit": 0.03,
+    "tau_m_max": 4e-10,
+    "S_offset": 0.0,
+    "S_amp": 1.0,
+    "S_power": 2.0,
+    "G_es_mode": "m2",
+    "G_es_TR_sharpness": 0.5,
+    "G_sl_mode": "gaussian"
+  },
+  "best_local_params": {
+    "demo_1.0mW.csv": {
+      "dt_local": -2.9999999999980844e-13,
+      "A_obs": 1.0,
+      "B_obs": 0.0
+    },
+    "demo_2.5mW.csv": {
+      "dt_local": -2.9999999675116543e-13,
+      "A_obs": 1.0,
+      "B_obs": 0.0
+    },
+    "demo_4.0mW.csv": {
+      "dt_local": 2.9999999995735823e-13,
+      "A_obs": 1.0,
+      "B_obs": 0.0
+    }
+  },
+  "optimizer_summary": {
+    "success": true,
+    "status": 2,
+    "cost": 26.326801609427086,
+    "nfev": 14,
+    "message": "`ftol` termination condition is satisfied."
+  },
+  "dataset_summary": [
+    {
+      "dataset_name": "demo_1.0mW.csv",
+      "path": "demo\\demo_1.0mW.csv",
+      "fluence_ratio": 1.0,
+      "n_points": 220,
+      "rms": 0.0027889579395675925,
+      "wrms": 0.2788957939567593,
+      "dt_local_ps": -0.2999999999998084,
+      "A_obs": 1.0,
+      "B_obs": 0.0,
+      "wall_time_sec": 0.4691288999747485,
+      "avg_wall_time_sec": 0.4582717620201786
+    },
+    {
+      "dataset_name": "demo_2.5mW.csv",
+      "path": "demo\\demo_2.5mW.csv",
+      "fluence_ratio": 2.5,
+      "n_points": 220,
+      "rms": 0.0028943145112768124,
+      "wrms": 0.2894314511276812,
+      "dt_local_ps": -0.29999999675116545,
+      "A_obs": 1.0,
+      "B_obs": 0.0,
+      "wall_time_sec": 0.4846350000007078,
+      "avg_wall_time_sec": 0.4623004443091753
+    },
+    {
+      "dataset_name": "demo_4.0mW.csv",
+      "path": "demo\\demo_4.0mW.csv",
+      "fluence_ratio": 4.0,
+      "n_points": 220,
+      "rms": 0.0030350887158093224,
+      "wrms": 0.30350887158093226,
+      "dt_local_ps": 0.2999999999573582,
+      "A_obs": 1.0,
+      "B_obs": 0.0,
+      "wall_time_sec": 0.47754790005274117,
+      "avg_wall_time_sec": 0.4628934797542052
+    }
+  ],
+  "timing_summary": {
+    "residual_call_count": 78,
+    "elapsed_sec": 109.33686749998014,
+    "avg_residual_sec": 1.401754711538207,
+    "estimated_total_calls": 400,
+    "rough_eta_sec": 451.36501711530263,
+    "per_dataset": {
+      "demo_1.0mW.csv": {
+        "dataset_name": "demo_1.0mW.csv",
+        "wall_time_total_sec": 36.20346919959411,
+        "call_count": 79,
+        "avg_wall_time_sec": 0.4582717620201786
+      },
+      "demo_2.5mW.csv": {
+        "dataset_name": "demo_2.5mW.csv",
+        "wall_time_total_sec": 36.52173510042485,
+        "call_count": 79,
+        "avg_wall_time_sec": 0.4623004443091753
+      },
+      "demo_4.0mW.csv": {
+        "dataset_name": "demo_4.0mW.csv",
+        "wall_time_total_sec": 36.56858490058221,
+        "call_count": 79,
+        "avg_wall_time_sec": 0.4628934797542052
+      }
+    }
+  }
+}
