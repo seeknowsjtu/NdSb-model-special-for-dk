@@ -9,7 +9,7 @@ from data_io import (
     fit_params_multi,
     export_multi_fit_results,
     _get_bounds_for_keys,
-    load_s_dataset_csv,
+    load_s_dataset_csv_raw,
 )
 
 # =========================
@@ -46,6 +46,8 @@ ROUND1_GLOBAL_KEYS = [
     "G_sl0",
     "tau_m0",
     "tau_m_crit_amp",
+    "A_obs",
+    "B_obs",
 ]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
     "S_scale",
@@ -53,13 +55,15 @@ ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
     "G_sl0",
     "tau_m0",
     "tau_m_crit_amp",
+    "A_obs",
+    "B_obs",
 ]
 
 # =========================
 # 3. 读入一个数据集
 # =========================
 def load_dataset(path: Path) -> dict:
-    return load_s_dataset_csv(path)
+    return load_s_dataset_csv_raw(path)
 
 # =========================
 # 4. 打印数据摘要
@@ -102,8 +106,8 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         datasets,
         p0,
         global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=["dt_local"],  # round-1: do not fit B_obs after baseline subtraction
-        observable_mode="eta",    # future comparisons: eta_m2 / eta_m1_mult / eta_m2_mult / chi2q / m_chi2q
+        local_keys=["dt_local"],
+        observable_mode="raw_chi2q",
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,
         progress_every=PROGRESS_EVERY,

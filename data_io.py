@@ -69,8 +69,6 @@ POSITIVE_FIT_KEYS = {
     # ARPES mapping positive params
     "S_amp", "S_power",
 
-    # multi-fit local observable scale
-    "A_obs",
 }
 
 LOCAL_KEY_BOUNDS = {
@@ -213,6 +211,28 @@ def load_s_dataset_csv(path: str | Path) -> dict:
     }
 
 
+def load_s_dataset_csv_raw(path: str | Path) -> dict:
+    t, Te, Ts, Tl, S, _, _ = load_csv_auto(str(path))
+    if S is None:
+        raise ValueError(f"{Path(path).name} has no S column.")
+
+    s_raw = np.asarray(S, dtype=float)
+    return {
+        "name": Path(path).name,
+        "path": str(path),
+        "t": t,
+        "Te": Te,
+        "Ts": Ts,
+        "Tl": Tl,
+        "S_raw": s_raw,
+        "S": s_raw,
+        "baseline_value": 0.0,
+        "baseline_npts": 0,
+        "baseline_method": "none",
+        "fluence_ratio": parse_fluence_ratio_from_name(str(path)),
+    }
+
+
 # ============================================================
 # Bounds helper
 # ============================================================
@@ -330,6 +350,10 @@ def _get_bounds_for_keys(keys):
             lb.append(0.1); ub.append(100.0)
         elif k == "ThetaD":
             lb.append(10.0); ub.append(1000.0)
+        elif k == "A_obs":
+            lb.append(-10.0); ub.append(10.0)
+        elif k == "B_obs":
+            lb.append(-2.0); ub.append(2.0)
         else:
             lb.append(-np.inf); ub.append(np.inf)
 
@@ -422,7 +446,8 @@ def build_observable(sim, p_global, p_local, observable_mode):
         Dataset-specific local parameter dictionary.
     observable_mode : str
         One of ``"m"``, ``"eta"``, ``"eta_m2"``, ``"eta_m1_mult"``,
-        ``"eta_m2_mult"``, ``"chi2q"``, or ``"m_chi2q"``.
+        ``"eta_m2_mult"``, ``"chi2q"``, ``"m_chi2q"``, ``"raw_chi2q"``,
+        ``"raw_m_chi2q"``, or ``"raw_eta"``.
     """
     mode = str(observable_mode).strip().lower()
     if mode == "m":
@@ -430,8 +455,8 @@ def build_observable(sim, p_global, p_local, observable_mode):
 
     eta = np.asarray(sim["eta"], dtype=float)
     m = np.asarray(sim["m"], dtype=float)
-    A_obs = float(p_local.get("A_obs", 1.0))
-    B_obs = float(p_local.get("B_obs", 0.0))
+    A_obs = float(p_local.get("A_obs", p_global.get("A_obs", 1.0)))
+    B_obs = float(p_local.get("B_obs", p_global.get("B_obs", 0.0)))
 
     if mode == "eta":
         return B_obs + A_obs * eta
@@ -448,10 +473,19 @@ def build_observable(sim, p_global, p_local, observable_mode):
     if mode == "m_chi2q":
         chi2q = _compute_chi2q(sim)
         return B_obs + A_obs * (m * chi2q)
+    if mode == "raw_chi2q":
+        chi2q = _compute_chi2q(sim)
+        return B_obs + A_obs * chi2q
+    if mode == "raw_m_chi2q":
+        chi2q = _compute_chi2q(sim)
+        return B_obs + A_obs * (m * chi2q)
+    if mode == "raw_eta":
+        return B_obs + A_obs * eta
 
     raise ValueError(
         "Unsupported observable_mode='{mode}'. Expected one of: "
-        "m, eta, eta_m2, eta_m1_mult, eta_m2_mult, chi2q, m_chi2q."
+        "m, eta, eta_m2, eta_m1_mult, eta_m2_mult, chi2q, m_chi2q, "
+        "raw_chi2q, raw_m_chi2q, raw_eta."
         .format(mode=observable_mode)
     )
 
