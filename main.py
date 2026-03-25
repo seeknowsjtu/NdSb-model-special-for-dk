@@ -83,6 +83,7 @@ from gui_component import ScrollableFrame, PARAMETER_FORM_SPECS
 
 FIT_PRESETS = {
     "Te": ["G_el0", "G_es0", "S_scale", "t0_pulse"],
+    # Legacy single-dataset S_m proxy fits (separate from multi-fit observable_mode).
     "S": ["tau_m0", "tau_m_crit_amp", "nu", "S_offset", "S_amp", "S_power", "t0_pulse"],
     "Both": [
         "G_el0", "G_es0", "G_sl0",
@@ -264,8 +265,8 @@ if GUI_AVAILABLE:
             for i in range(4):
                 fitfrm.columnconfigure(i, weight=1)
             ttk.Button(fitfrm, text="Fit Te", command=self.on_fit_te).grid(row=0, column=0, padx=3, pady=2, sticky="ew")
-            ttk.Button(fitfrm, text="Fit S", command=self.on_fit_s).grid(row=0, column=1, padx=3, pady=2, sticky="ew")
-            ttk.Button(fitfrm, text="Fit Te + S", command=self.on_fit_both).grid(row=0, column=2, padx=3, pady=2, sticky="ew")
+            ttk.Button(fitfrm, text="Fit S (legacy m-proxy)", command=self.on_fit_s).grid(row=0, column=1, padx=3, pady=2, sticky="ew")
+            ttk.Button(fitfrm, text="Fit Te + S (legacy S)", command=self.on_fit_both).grid(row=0, column=2, padx=3, pady=2, sticky="ew")
             ttk.Button(fitfrm, text="Apply Fit → Params", command=self.on_apply_fit).grid(row=0, column=3, padx=3, pady=2, sticky="ew")
 
             ttk.Separator(left).grid(row=5, column=0, sticky="ew", pady=8)
@@ -819,9 +820,11 @@ if GUI_AVAILABLE:
             self._fit("Te")
 
         def on_fit_s(self):
+            self._log("[fit-S] using legacy single-dataset S_m proxy, not multi-fit observable_mode.")
             self._fit("S")
 
         def on_fit_both(self):
+            self._log("[fit-Both] using legacy single-dataset S_m proxy for S.")
             self._fit("Both")
 
 

@@ -195,7 +195,7 @@ python main.py
 
 ### 光谱代理量 `S(t)`
 
-程序中并没有直接计算完整光谱，而是提供一个简化代理量：
+程序中并没有直接计算完整光谱，而是提供一个简化代理量（**legacy single-dataset proxy，用于 GUI 的 `Fit S` / `Fit Te + S`**）：
 
 ```text
 S(t) = S_offset + S_amp * m(t)^S_power
@@ -569,6 +569,22 @@ time_ps,Te,spectral_weight
 - `loss="soft_l1"`
 
 此外，部分正参数会自动采用 **log 参数化**，避免在搜索中出现负值或跨数量级不稳定。
+
+### Multi-dataset（新工作流，round-1 eta-only）
+
+对于多数据集全局拟合，当前 round-1 推荐流程为：
+
+- 先对每条 `S` 曲线做 baseline subtraction；
+- `observable_mode="eta"`；
+- `local_keys=["dt_local"]`。
+
+后续对比模式（暂未作为 round-1 默认）包括：
+
+- `eta_m2`
+- `eta_m1_mult`
+- `eta_m2_mult`
+- `chi2q`
+- `m_chi2q`
 
 ---
 
