@@ -639,12 +639,14 @@ def fit_params_multi(
 
         local_defaults = {
             "dt_local": 0.0,
-            "A_obs": float(dataset.get("A_obs", 1.0)),
-            "B_obs": float(dataset.get("B_obs", 0.0)),
         }
         for key in local_keys:
-            if key not in local_defaults:
-                local_defaults[key] = float(dataset.get(key, p0.get(key, 0.0)))
+            if key in dataset:
+                local_defaults[key] = float(dataset[key])
+            elif key in p0:
+                local_defaults[key] = float(p0[key])
+            else:
+                local_defaults[key] = 0.0
 
         validated.append({
             "name": str(name),
@@ -842,8 +844,16 @@ def fit_params_multi(
             "rms": rms,
             "wrms": wrms,
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
-            "A_obs": float(local_best.get("A_obs", np.nan)),
-            "B_obs": float(local_best.get("B_obs", np.nan)),
+            "A_obs": (
+                float(local_best["A_obs"])
+                if "A_obs" in local_keys
+                else float(best_global_params.get("A_obs", np.nan))
+            ),
+            "B_obs": (
+                float(local_best["B_obs"])
+                if "B_obs" in local_keys
+                else float(best_global_params.get("B_obs", np.nan))
+            ),
             "wall_time_sec": float(evaluated["wall_time_sec"]),
             "avg_wall_time_sec": float(evaluated["avg_wall_time_sec"]),
         })
