@@ -69,3 +69,253 @@ Outputs to record:
 - bound warnings
 - timing summary
 - export path
+
+20260325 20:51
+
+[Mode test 1] raw_eta
+
+Settings:
+- EXPERIMENT_MODE = raw_eta
+- eta_representation = scalar
+- observable_mode = raw_eta
+- global_keys = [S_scale, A_obs, B_obs]
+- local_keys = []
+- raw deltak input, no baseline subtraction
+
+Optimizer summary:
+- success = True
+- status = 2
+- termination = ftol
+- nfev = 24
+- cost = 1.0169
+
+Best-fit globals:
+- S_scale = 0.02711
+- A_obs = 0.05000 (hits upper bound)
+- B_obs = 0.02016
+
+Per-dataset wrms:
+- 1.0 mW: 0.149
+- 2.0 mW: 0.199
+- 2.5 mW: 0.180
+
+Qualitative assessment:
+- Much better than the previous “flat-line / boundary-collapse” bad fit.
+- The model captures part of the overall decay trend, especially for 2.5 mW.
+- But 1.0 and 2.0 mW are still too flat compared with experiment.
+- A_obs hits the upper bound, suggesting the raw_eta mapping is still strained.
+
+Conclusion:
+- raw_eta is a partially workable mode.
+- It is worth keeping as a reference model.
+- But it is probably not yet the final preferred readout for raw deltak.
+
+[Mode test 2] raw_chi2q
+
+Settings:
+- EXPERIMENT_MODE = raw_chi2q
+- eta_representation = cos2phi
+- observable_mode = raw_chi2q
+- global_keys = [S_scale, A_obs, B_obs]
+- local_keys = []
+- raw deltak input, no baseline subtraction
+
+Optimizer summary:
+- success = True
+- status = 4
+- termination = ftol + xtol
+- nfev = 25
+- cost = 0.91835
+
+Best-fit globals:
+- S_scale = 0.03306
+- A_obs = 0.02413
+- B_obs = 0.02611
+
+Per-dataset wrms:
+- 1.0 mW: 0.14176
+- 2.0 mW: 0.14150
+- 2.5 mW: 0.21227
+
+Qualitative assessment:
+- Better overall cost than raw_eta.
+- Clearly better than raw_eta for 1.0 and 2.0 mW.
+- Worse than raw_eta for 2.5 mW.
+- A_obs and B_obs stay away from hard bounds, so the mapping looks more natural than raw_eta.
+- The model still fails to capture the full extra decay at the highest fluence.
+
+Conclusion:
+- raw_chi2q is currently the best “clean” model among raw_eta and raw_chi2q.
+- It should be kept as the current front-runner.
+- The next mode to test is raw_m_chi2q.
+
+
+[Mode test 3] raw_m_chi2q
+
+Settings:
+- EXPERIMENT_MODE = raw_m_chi2q
+- eta_representation = cos2phi
+- observable_mode = raw_m_chi2q
+- global_keys = [S_scale, A_obs, B_obs]
+- local_keys = []
+- raw deltak input, no baseline subtraction
+
+Optimizer summary:
+- success = True
+- status = 2
+- termination = ftol
+- nfev = 31
+- cost = 0.752741
+
+Best-fit globals:
+- S_scale = 0.03151
+- A_obs = 0.03623
+- B_obs = 0.02555
+
+Per-dataset wrms:
+- 1.0 mW: 0.1204
+- 2.0 mW: 0.1169
+- 2.5 mW: 0.2040
+
+Qualitative assessment:
+- Best clean model so far among raw_eta / raw_chi2q / raw_m_chi2q.
+- 1.0 and 2.0 mW are described more naturally than before.
+- 2.5 mW remains the hardest dataset and still shows underfitting at long delay.
+- Fit parameters stay in a reasonable interior range rather than collapsing to boundaries.
+
+Conclusion:
+- raw_m_chi2q is the current front-runner.
+- Keep it as the baseline model for the next stage.
+- Next step should not be changing readout mode again, but gradually reintroducing selected dynamical parameters.
+
+[Mode test 4] raw_m_chi2q + tau_m0
+
+Settings:
+
+* EXPERIMENT_MODE = raw_m_chi2q
+* eta_representation = cos2phi
+* observable_mode = raw_m_chi2q
+* global_keys = [S_scale, A_obs, B_obs, tau_m0]
+* local_keys = []
+* raw deltak input, no baseline subtraction
+
+Optimizer summary:
+
+* success = True
+* status = 4
+* termination = both ftol and xtol satisfied
+* nfev = 33
+* cost = 0.7527455
+
+Best-fit globals:
+
+* S_scale = 0.03152
+* A_obs = 0.03616
+* B_obs = 0.02556
+* tau_m0 = 2.993e-11
+
+Per-dataset wrms:
+
+* 1.0 mW: 0.1204
+* 2.0 mW: 0.1170
+* 2.5 mW: 0.2040
+
+Assessment:
+
+* Adding tau_m0 did not materially improve the fit relative to the previous raw_m_chi2q run.
+* tau_m0 stayed essentially at its initial value, so it is not the dominant knob at this stage.
+* The main remaining issue appears to be the high-fluence long-delay tail.
+* A single global B_obs acts like a floor, which likely prevents the 2.5 mW curve from dropping low enough.
+
+Conclusion:
+
+* raw_m_chi2q remains the current best clean model.
+* The next diagnostic should test whether the problem is the single global B_obs floor.
+* Preferred next step: keep raw_m_chi2q, do a diagnostic run with local B_obs once, then replace that with a fluence-dependent global background B_obs(F)=B0+B1(F-1).
+
+[Diagnostic run] raw_m_chi2q + local B_obs
+
+Settings:
+- EXPERIMENT_MODE = raw_m_chi2q
+- eta_representation = cos2phi
+- observable_mode = raw_m_chi2q
+- global_keys = [S_scale, A_obs]
+- local_keys = [B_obs]
+- raw deltak input, no baseline subtraction
+
+Optimizer summary:
+- success = True
+- status = 1
+- termination = gtol
+- nfev = 7
+- cost = 3.69426
+
+Best-fit globals:
+- S_scale = 1.0e-7 (hits lower bound)
+- A_obs = 0.05 (hits upper bound)
+
+Best-fit locals:
+- B_obs(1.0 mW) = 0.01 (hits upper bound)
+- B_obs(2.0 mW) = 0.01 (hits upper bound)
+- B_obs(2.5 mW) = 0.01 (hits upper bound)
+
+Per-dataset wrms:
+- 1.0 mW: 0.4255
+- 2.0 mW: 0.3159
+- 2.5 mW: 0.2773
+
+Assessment:
+- Much worse than the previous clean raw_m_chi2q run.
+- Fit collapses to a boundary solution:
+  S_scale goes to the minimum, A_obs to the maximum, and all local B_obs to the same maximum.
+- This means the local-B_obs diagnostic is not informative in the current bound setup.
+- The result should NOT be interpreted as evidence against raw_m_chi2q itself.
+
+Conclusion:
+- Reject this local-B_obs implementation as the next working model.
+- Revert to the previous clean raw_m_chi2q baseline.
+- The next improvement should be a fluence-dependent global background, not free local B_obs with the current tight bound.
+
+[Current conclusion] raw_m_chi2q + pulse_width baseline
+
+Status:
+- The current 4-parameter model is close to its practical limit.
+- The mode choice is now stable: raw_m_chi2q is the best readout.
+- pulse_width is an effective parameter and should be kept.
+- B1_obs is not needed at present because it converges to ~0.
+
+Evidence:
+- success = True, status = 3 (xtol)
+- cost = 0.35266
+- wrms = 0.098 / 0.093 / 0.119
+- pulse_width = 2.66e-13 s
+- B1_obs = 0
+- best globals remain in a reasonable interior range. :contentReference[oaicite:4]{index=4}
+
+Interpretation:
+- The remaining mismatch is mainly in the early-time / front-edge details.
+- This suggests the next missing ingredient is a fast coupling channel, not another background correction.
+
+Next step:
+- Keep raw_m_chi2q.
+- Keep B1_obs fixed to 0.
+- Add only one new global parameter: G_es0.
+
+[Interpretation note]
+
+The latest run improves the global cost numerically, but the fitted pulse_width (~1.17 ps) is clearly inconsistent with the experimental time resolution (~150 fs). Therefore this improvement is not fully trustworthy physically.
+
+Current interpretation:
+1. raw_m_chi2q remains the best large-scale readout model.
+2. The optimizer is using an unphysically broad pulse to smooth over the early-time mismatch.
+3. The next step is not to add more free parameters immediately, but to constrain the pulse width using experimental knowledge.
+
+Next planned run:
+- keep observable_mode = raw_m_chi2q
+- fix pulse_width = 1.5e-13 s
+- fix B1_obs = 0
+- fit only [S_scale, A_obs, B0_obs, G_es0]
+- then re-evaluate whether the early-time mismatch persists
+
+Decision rule:
+- If the early-time mismatch remains large even with a physically fixed pulse width, then the model likely needs an additional prompt electronic readout term rather than another slow dynamical parameter.

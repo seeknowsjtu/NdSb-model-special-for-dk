@@ -5,6 +5,12 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
+EXPERIMENT_MODE = "raw_m_chi2q"
+# 可选:
+# "raw_eta"
+# "raw_chi2q"
+# "raw_m_chi2q"
+
 from config import default_params, normalize_params_dict
 from data_io import (
     fit_params_multi,
@@ -32,7 +38,7 @@ DATA_DIR = Path(".")
 # =========================
 HEARTBEAT_SEC = 10          # 每隔多少秒打印一次“still running”
 SMOKE_TEST = True           # 先做 smoke test
-SMOKE_MAX_NFEV = 40         # smoke test 的最大 nfev
+SMOKE_MAX_NFEV = 80         # smoke test 的最大 nfev
 FULL_MAX_NFEV = 150         # 正式第一轮最大 nfev
 
 # multi-fit 相关设置
@@ -43,21 +49,17 @@ ENABLE_TIMING = True
 
 ROUND1_GLOBAL_KEYS = [
     "S_scale",
-    "G_es0",
-    "G_sl0",
-    "tau_m0",
-    "tau_m_crit_amp",
     "A_obs",
-    "B_obs",
+    "B0_obs",
+    "G_es0",
+    "G_el0",
 ]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
     "S_scale",
-    "G_es0",
-    "G_sl0",
-    "tau_m0",
-    "tau_m_crit_amp",
     "A_obs",
-    "B_obs",
+    "B0_obs",
+    "G_es0",
+    "G_el0",
 ]
 
 # =========================
@@ -84,18 +86,53 @@ def print_dataset_summary(datasets: list[dict]) -> None:
         )
     print(f"Total points across all datasets = {total_points}")
 
+
+def configure_mode(p0: dict) -> tuple[dict, str]:
+    mode = EXPERIMENT_MODE.strip().lower()
+    p = dict(p0)
+
+    if mode == "raw_eta":
+        p["eta_representation"] = "scalar"
+        observable_mode = "raw_eta"
+
+    elif mode == "raw_chi2q":
+        p["eta_representation"] = "cos2phi"
+        observable_mode = "raw_chi2q"
+
+    elif mode == "raw_m_chi2q":
+        p["eta_representation"] = "cos2phi"
+        observable_mode = "raw_m_chi2q"
+
+    else:
+        raise ValueError(f"Unsupported EXPERIMENT_MODE: {EXPERIMENT_MODE}")
+
+    return p, observable_mode
 # =========================
 # 5. 构造起始参数
 # =========================
 def make_initial_params() -> dict:
     p0 = normalize_params_dict(default_params())
 
-    # 轻微扰动初值（可全部注释掉，保持最原始）
-    p0["G_el0"] *= 1.02
-    p0["G_es0"] *= 0.98
-    p0["tau_m0"] *= 1.05
-    p0["Gamma_eta"] *= 0.95
+    # ---------- 固定的动力学背景 ----------
+    p0["G_sl0"] = 3.04e14
+    p0["tau_m0"] = 3.0e-11
+    p0["tau_m_crit_amp"] = 0.0
+
+    # ---------- 先不要让 m^2 读出混进来 ----------
     p0["lam_m2"] = 0.0
+
+    # ---------- 预热初始化保留 ----------
+    p0["use_hot_steady_init"] = 1
+    p0["hot_init_mode"] = "avg_power"
+    p0["rep_rate_Hz"] = 5.0e5
+    p0["preheat_max_dT"] = 30.0
+    p0["S_scale"] = 0.0408
+    p0["A_obs"] = 0.0451
+    p0["B0_obs"] = 0.0232
+    p0["G_es0"] = 5.74e14
+    p0["G_el0"] = 5.0e13
+    p0["pulse_width"] = 1.5e-13
+    p0["B1_obs"] = 0.0
 
     return p0
 
@@ -112,12 +149,14 @@ def infer_observable_scale_from_datasets(datasets: list[dict]) -> tuple[float, f
 # 6. 单次拟合任务
 # =========================
 def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
+    p_mode, observable_mode = configure_mode(p0)
+
     fit_bundle, res = fit_params_multi(
         datasets,
-        p0,
+        p_mode,
         global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=["dt_local"],
-        observable_mode="raw_chi2q",
+        local_keys=[],
+        observable_mode=observable_mode,
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,
         progress_every=PROGRESS_EVERY,
@@ -136,7 +175,6 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         print(f"[warning] {warning_msg}", flush=True)
         exports = {"export_error": str(exc)}
     return fit_bundle, res, exports
-
 # =========================
 # 7. 带心跳的执行器
 # =========================
@@ -256,9 +294,11 @@ def main() -> None:
         print_dataset_summary(datasets)
 
         p0 = make_initial_params()
-        a_obs0, b_obs0 = infer_observable_scale_from_datasets(datasets)
-        p0["A_obs"] = a_obs0
-        p0["B_obs"] = b_obs0
+        p0, observable_mode_preview = configure_mode(p0)
+        print(f"[mode] EXPERIMENT_MODE = {EXPERIMENT_MODE} | observable_mode = {observable_mode_preview} | eta_representation = {p0['eta_representation']}")
+        # a_obs0, b_obs0 = infer_observable_scale_from_datasets(datasets)
+        # p0["A_obs"] = a_obs0
+        # p0["B0_obs"] = b_obs0
 
         # ---- 第一步：smoke test ----
         if SMOKE_TEST:

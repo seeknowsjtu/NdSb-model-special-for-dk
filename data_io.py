@@ -242,9 +242,9 @@ def _get_bounds_for_keys(keys):
 
     for k in keys:
         if k in ["G_el", "G_el0"]:
-            lb.append(1e11); ub.append(5e15)
+            lb.append(1e13); ub.append(5e14)
         elif k in ["G_es", "G_es0"]:
-            lb.append(1e13); ub.append(1e18)
+            lb.append(1e14); ub.append(2e15)
         elif k in ["G_sl", "G_sl0"]:
             lb.append(1e12); ub.append(5e16)
         elif k == "G_el_Tpow":
@@ -352,9 +352,11 @@ def _get_bounds_for_keys(keys):
         elif k == "ThetaD":
             lb.append(10.0); ub.append(1000.0)
         elif k == "A_obs":
-            lb.append(1e-5); ub.append(2e-2)
-        elif k == "B_obs":
-            lb.append(0.0); ub.append(1e-2)
+            lb.append(1e-5); ub.append(8e-1)
+        elif k == "B0_obs":
+            lb.append(0.0); ub.append(4e-2)
+        elif k == "B1_obs":
+            lb.append(-1e-2); ub.append(1e-2)
         else:
             lb.append(-np.inf); ub.append(np.inf)
 
@@ -479,7 +481,11 @@ def build_observable(sim, p_global, p_local, observable_mode):
         return B_obs + A_obs * chi2q
     if mode == "raw_m_chi2q":
         chi2q = _compute_chi2q(sim)
-        return B_obs + A_obs * (m * chi2q)
+        F = float(p_global.get("fluence_multiplier", 1.0))
+        B_eff = p_global.get("B0_obs", p_global.get("B_obs", 0.0)) \
+            + p_global.get("B1_obs", 0.0) * (F - 1.0)
+
+        return B_eff + A_obs * (m * chi2q)
     if mode == "raw_eta":
         return B_obs + A_obs * eta
 
@@ -771,6 +777,7 @@ def fit_params_multi(
             "m_fit": np.asarray(sim["m"], dtype=float),
             "eta_fit": np.asarray(sim["eta"], dtype=float),
             "phi_fit": np.asarray(sim["phi"], dtype=float),
+            "chi2q_fit": np.asarray(_compute_chi2q(sim), dtype=float),
             "residual": np.asarray(residual, dtype=float),
             "sim": sim,
             "local_params": p_local,
@@ -835,11 +842,14 @@ def fit_params_multi(
             if "A_obs" in local_keys
             else float(best_global_params.get("A_obs", np.nan))
         )
-        b_obs_summary = (
-            float(local_best["B_obs"])
-            if "B_obs" in local_keys
-            else float(best_global_params.get("B_obs", np.nan))
-        )
+
+        if "B_obs" in local_keys:
+            b_eff_summary = float(local_best["B_obs"])
+        else:
+            B0 = float(best_global_params.get("B0_obs", best_global_params.get("B_obs", np.nan)))
+            B1 = float(best_global_params.get("B1_obs", 0.0))
+            F = float(dataset["fluence_ratio"])
+            b_eff_summary = B0 + B1 * (F - 1.0)
 
         rms = float(np.sqrt(np.mean((evaluated["S_fit"] - evaluated["S_exp"]) ** 2)))
         wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))
@@ -855,10 +865,12 @@ def fit_params_multi(
             "wrms": wrms,
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
             "A_obs": a_obs_summary,
-            "B_obs": b_obs_summary,
+            "B_eff_obs": b_eff_summary,
+            "B0_obs": float(best_global_params.get("B0_obs", np.nan)),
+            "B1_obs": float(best_global_params.get("B1_obs", np.nan)),
             "wall_time_sec": float(evaluated["wall_time_sec"]),
             "avg_wall_time_sec": float(evaluated["avg_wall_time_sec"]),
-        })
+        })        
 
     timing_summary = _build_timing_summary()
 
@@ -956,7 +968,9 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                 "wrms",
                 "dt_local_ps",
                 "A_obs",
-                "B_obs",
+                "B_eff_obs",
+                "B0_obs",
+                "B1_obs",
                 "wall_time_sec",
                 "avg_wall_time_sec",
             ],
@@ -965,29 +979,30 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
         writer.writeheader()
         writer.writerows(fit_bundle["dataset_summary"])
 
-    fitcurve_paths = []
-    for item in dataset_fits:
-        dataset_token = _slugify_dataset_name(item["name"])
-        curve_path = out_dir / f"fitcurve_{dataset_token}_{timestamp}.csv"
-        stacked = np.column_stack([
-            item["t"] * 1e12,
-            item["S_exp"],
-            item["S_fit"],
-            item["Te_fit"],
-            item["Ts_fit"],
-            item["Tl_fit"],
-            item["m_fit"],
-            item["eta_fit"],
-            item["residual"],
-        ])
-        np.savetxt(
-            curve_path,
-            stacked,
-            delimiter=",",
-            header="t_ps,S_exp,S_fit,Te_fit,Ts_fit,Tl_fit,m_fit,eta_fit,residual",
-            comments="",
-        )
-        fitcurve_paths.append(str(curve_path))
+        fitcurve_paths = []
+        for item in dataset_fits:
+            dataset_token = _slugify_dataset_name(item["name"])
+            curve_path = out_dir / f"fitcurve_{dataset_token}_{timestamp}.csv"
+            stacked = np.column_stack([
+                item["t"] * 1e12,
+                item["S_exp"],
+                item["S_fit"],
+                item["Te_fit"],
+                item["Ts_fit"],
+                item["Tl_fit"],
+                item["m_fit"],
+                item["eta_fit"],
+                item["chi2q_fit"],
+                item["residual"],
+            ])
+            np.savetxt(
+                curve_path,
+                stacked,
+                delimiter=",",
+                header="t_ps,S_exp,S_fit,Te_fit,Ts_fit,Tl_fit,m_fit,eta_fit,chi2q_fit,residual",
+                comments="",
+            )
+            fitcurve_paths.append(str(curve_path))        
 
     fig, ax = plt.subplots(figsize=(10, 6))
     for item in dataset_fits:
@@ -1015,9 +1030,9 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     flu = [row["fluence_ratio"] for row in fit_bundle["dataset_summary"]]
     axes[1].plot(flu, [row["dt_local_ps"] for row in fit_bundle["dataset_summary"]], marker="o", label="dt_local_ps")
     axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
-    axes[1].plot(flu, [row["B_obs"] for row in fit_bundle["dataset_summary"]], marker="^", label="B_obs")
+    axes[1].plot(flu, [row["B_eff_obs"] for row in fit_bundle["dataset_summary"]], marker="^", label="B_eff_obs")
     axes[1].set_xlabel("fluence ratio / mW label")
-    axes[1].set_title("Local parameters by dataset")
+    axes[1].set_title("Per-dataset effective readout")
     axes[1].grid(alpha=0.3)
     axes[1].legend()
     fig.tight_layout()
