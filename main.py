@@ -131,7 +131,7 @@ if GUI_AVAILABLE:
             self._refresh_entries_from_params(self.p, view="p")
             self._plot_empty()
             self._log("Ready. Load CSV with headers like: tps, teK, tsK, tlK, S.")
-            self._log("Multi-fit preset: observable=eta | local_keys=dt_local (A_obs/B_obs available but not default).")
+            self._log("Multi-fit preset: observable=raw_m_chi2q | local_keys=dt_local.")
 
         # ====================================================
         # UI build
@@ -492,8 +492,9 @@ if GUI_AVAILABLE:
 
             first = dataset_fits[0]
             tps = first["t"] * 1e12
-            TN = float(fit_bundle["best_global_params"]["TN"])
-            TR = float(fit_bundle["best_global_params"]["TR"])
+            global_p = fit_bundle.get("best_global_params", {})
+            TN = float(global_p.get("TN", np.nan))
+            TR = float(global_p.get("TR", np.nan))
 
             self.axT.clear()
             self.axT.plot(tps, first["Te_fit"], label=f"{first['name']} Te_fit")
@@ -730,11 +731,17 @@ if GUI_AVAILABLE:
                     f"[multi-fit] success={res.success} | cost={res.cost:.3e} | nfev={res.nfev} | status={res.status}"
                 )
                 for key in fit_bundle["global_keys"]:
-                    self._log(f"    [global] {key} = {fmt_num(fit_bundle['best_global_params'][key])}")
+                    self._log(f"    [global] {key} = {fmt_num(fit_bundle['best_global_params'].get(key, np.nan))}")
                 for row in fit_bundle["dataset_summary"]:
+                    dt_local_ps = float(row.get("dt_local_ps", np.nan))
+                    a_obs = float(row.get("A_obs", np.nan))
+                    b_eff_obs = float(row.get("B_eff_obs", np.nan))
+                    b0_obs = float(row.get("B0_obs", np.nan))
+                    b1_obs = float(row.get("B1_obs", np.nan))
                     self._log(
                         f"    [local] {row['dataset_name']} | rms={row['rms']:.4g} | wrms={row['wrms']:.4g} | "
-                        f"dt_local_ps={row['dt_local_ps']:.4g} | A_obs={row['A_obs']:.4g} | B_obs={row['B_obs']:.4g}"
+                        f"dt_local_ps={dt_local_ps:.4g} | A_obs={a_obs:.4g} | "
+                        f"B_eff_obs={b_eff_obs:.4g} | B0_obs={b0_obs:.4g} | B1_obs={b1_obs:.4g}"
                     )
             except Exception as e:
                 messagebox.showerror("Multi-fit error", str(e))

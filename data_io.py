@@ -75,7 +75,6 @@ POSITIVE_FIT_KEYS = {
 LOCAL_KEY_BOUNDS = {
     "dt_local": (-1e-12, 1e-12),
     "A_obs": (1e-5, 2e-2),
-    "B_obs": (0.0, 1e-2),
 }
 
 
@@ -482,8 +481,7 @@ def build_observable(sim, p_global, p_local, observable_mode):
     if mode == "raw_m_chi2q":
         chi2q = _compute_chi2q(sim)
         F = float(p_global.get("fluence_multiplier", 1.0))
-        B_eff = p_global.get("B0_obs", p_global.get("B_obs", 0.0)) \
-            + p_global.get("B1_obs", 0.0) * (F - 1.0)
+        B_eff = float(p_global.get("B0_obs", 0.0)) + float(p_global.get("B1_obs", 0.0)) * (F - 1.0)
 
         return B_eff + A_obs * (m * chi2q)
     if mode == "raw_eta":
@@ -843,13 +841,10 @@ def fit_params_multi(
             else float(best_global_params.get("A_obs", np.nan))
         )
 
-        if "B_obs" in local_keys:
-            b_eff_summary = float(local_best["B_obs"])
-        else:
-            B0 = float(best_global_params.get("B0_obs", best_global_params.get("B_obs", np.nan)))
-            B1 = float(best_global_params.get("B1_obs", 0.0))
-            F = float(dataset["fluence_ratio"])
-            b_eff_summary = B0 + B1 * (F - 1.0)
+        B0 = float(best_global_params.get("B0_obs", np.nan))
+        B1 = float(best_global_params.get("B1_obs", np.nan))
+        F = float(dataset["fluence_ratio"])
+        b_eff_summary = B0 + B1 * (F - 1.0)
 
         rms = float(np.sqrt(np.mean((evaluated["S_fit"] - evaluated["S_exp"]) ** 2)))
         wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))

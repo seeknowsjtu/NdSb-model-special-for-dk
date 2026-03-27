@@ -6,6 +6,8 @@ import csv
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 EXPERIMENT_MODE = "raw_m_chi2q"
@@ -14,7 +16,13 @@ EXPERIMENT_MODE = "raw_m_chi2q"
 # "raw_chi2q"
 # "raw_m_chi2q"
 
-from config import default_params, normalize_params_dict
+from config import (
+    default_params,
+    normalize_params_dict,
+    MULTI_FIT_DEFAULT_GLOBAL_KEYS,
+    MULTI_FIT_DEFAULT_LOCAL_KEYS,
+    MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
+)
 from data_io import (
     fit_params_multi,
     export_multi_fit_results,
@@ -50,6 +58,7 @@ SCAN_EXPORT_ROOT = "fit_results/scan_runs"
 HEARTBEAT_SEC = 10
 
 SMOKE_TEST = True              # 扫描时建议显式关掉
+STOP_AFTER_SMOKE = False       # True: smoke 后退出；False: smoke 后继续 full fit
 SMOKE_MAX_NFEV = 80             # 扫描模式下基本不会用到
 FULL_MAX_NFEV = 150             # 扫描模式下基本不会用到
 
@@ -59,24 +68,12 @@ PROGRESS_EVERY = 5
 OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
 
-ROUND1_GLOBAL_KEYS = [
-    "S_scale",
-    "A_obs",
-    "B0_obs",
-    "G_es0",
-    "G_el0",
-    "tau_l_sink",
-    "tau_s_sink"
-]
-ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
-    "S_scale",
-    "A_obs",
-    "B0_obs",
-    "G_es0",
-    "G_el0",
-    "tau_l_sink",
-    "tau_s_sink"
-]
+FULL_FIT_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS)
+FULL_FIT_LOCAL_KEYS = list(MULTI_FIT_DEFAULT_LOCAL_KEYS)
+# Scan reoptimize 只重调 readout 子集；命名上明确区别于 full fit。
+SCAN_REOPT_GLOBAL_KEYS = ["S_scale", "A_obs", "B0_obs", "B1_obs"]
+SCAN_REOPT_LOCAL_KEYS: list[str] = []
+ROUND1_GLOBAL_BOUND_WARNING_KEYS = list(FULL_FIT_GLOBAL_KEYS)
 
 BASELINE_OVERRIDE = {
     "S_scale": 0.0611,
@@ -285,8 +282,8 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                 fit_bundle, res = fit_params_multi(
                     datasets,
                     p_scan,
-                    global_keys=["S_scale", "A_obs", "B0_obs"],
-                    local_keys=[],
+                    global_keys=SCAN_REOPT_GLOBAL_KEYS,
+                    local_keys=SCAN_REOPT_LOCAL_KEYS,
                     observable_mode=observable_mode,
                     sigma_S=SIGMA_S,
                     max_nfev=60,
@@ -371,8 +368,8 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
     fit_bundle, res = fit_params_multi(
         datasets,
         p_mode,
-        global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=["dt_local"],
+        global_keys=FULL_FIT_GLOBAL_KEYS,
+        local_keys=FULL_FIT_LOCAL_KEYS,
         observable_mode=observable_mode,
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,
@@ -381,17 +378,7 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         enable_timing=ENABLE_TIMING,
     )
 
-    try:
-        exports = export_multi_fit_results(
-            fit_bundle,
-            res,
-            export_root=export_root,
-        )
-    except Exception as exc:
-        warning_msg = f"export failed: {exc}"
-        print(f"[warning] {warning_msg}", flush=True)
-        exports = {"export_error": str(exc)}
-    return fit_bundle, res, exports
+    return fit_bundle, res, export_root
 # =========================
 # 7. 带心跳的执行器
 # =========================
@@ -414,9 +401,19 @@ def run_with_heartbeat(datasets: list[dict], p0: dict, max_nfev: int, export_roo
         end = time.perf_counter()
 
         # 若拟合线程里抛异常，这里会再次抛出
-        fit_bundle, res, exports = future.result()
+        fit_bundle, res, export_root = future.result()
 
     print(f"[multi-fit] finished in {end - start:.1f} s", flush=True)
+    try:
+        exports = export_multi_fit_results(
+            fit_bundle,
+            res,
+            export_root=export_root,
+        )
+    except Exception as exc:
+        warning_msg = f"export failed: {exc}"
+        print(f"[warning] {warning_msg}", flush=True)
+        exports = {"export_error": str(exc)}
     return fit_bundle, res, exports, end - start
 
 # =========================
@@ -462,7 +459,7 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
 
     print("\n=== fitted global params ===")
     for k in fit_bundle["global_keys"]:
-        v = fit_bundle["best_global_params"][k]
+        v = fit_bundle["best_global_params"].get(k, float("nan"))
         print(f"  {k:20s} = {v:.8g}")
 
     print("\n=== dataset summary ===")
@@ -473,7 +470,11 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
             f"fluence={row['fluence_ratio']:.2f} | "
             f"rms={row['rms']:.4e} | "
             f"wrms={row['wrms']:.4e} | "
-            f"dt_local_ps={dt_local_ps:.4f}"
+            f"dt_local_ps={dt_local_ps:.4f} | "
+            f"A_obs={float(row.get('A_obs', float('nan'))):.6g} | "
+            f"B_eff_obs={float(row.get('B_eff_obs', float('nan'))):.6g} | "
+            f"B0_obs={float(row.get('B0_obs', float('nan'))):.6g} | "
+            f"B1_obs={float(row.get('B1_obs', float('nan'))):.6g}"
         )
 
     _print_bound_warnings(fit_bundle)
@@ -506,13 +507,23 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
 # =========================
 def main() -> None:
     try:
+        missing_files = [str(DATA_DIR / fn) for fn in CSV_FILES if not (DATA_DIR / fn).exists()]
+        if missing_files:
+            raise FileNotFoundError(
+                "Missing CSV files in CSV_FILES:\n  - " + "\n  - ".join(missing_files)
+            )
         datasets = [load_dataset(DATA_DIR / fn) for fn in CSV_FILES]
         datasets.sort(key=lambda d: d["fluence_ratio"])
         print_dataset_summary(datasets)
 
         p0 = make_baseline_params()
         p0, observable_mode_preview = configure_mode(p0)
-        print(f"[mode] EXPERIMENT_MODE = {EXPERIMENT_MODE} | observable_mode = {observable_mode_preview} | eta_representation = {p0['eta_representation']}")
+        print(
+            f"[mode] EXPERIMENT_MODE = {EXPERIMENT_MODE} | "
+            f"default_observable = {MULTI_FIT_DEFAULT_OBSERVABLE_MODE} | "
+            f"observable_mode = {observable_mode_preview} | "
+            f"eta_representation = {p0['eta_representation']}"
+        )
         # a_obs0, b_obs0 = infer_observable_scale_from_datasets(datasets)
         # p0["A_obs"] = a_obs0
         # p0["B0_obs"] = b_obs0
@@ -537,7 +548,9 @@ def main() -> None:
             )
             print_fit_summary(smoke_bundle, smoke_res, smoke_exports, smoke_t)
             print("===== SMOKE TEST END =====\n")
-            return
+            # SMOKE_TEST=True 表示“先跑 smoke”；是否在此退出由 STOP_AFTER_SMOKE 决定。
+            if STOP_AFTER_SMOKE:
+                return
 
             # # 用 smoke test 的最优全局参数作为正式跑的起点
             # p0 = dict(p0)
