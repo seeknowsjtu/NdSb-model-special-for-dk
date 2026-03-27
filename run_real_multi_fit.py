@@ -72,9 +72,14 @@ FULL_FIT_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS)
 FULL_FIT_LOCAL_KEYS = []
 # Scan reoptimize 只重调 readout 子集；命名上明确区别于 full fit。
 SCAN_REOPT_GLOBAL_KEYS: list[str] = []
+# Scan/readout compatibility knob: 在 USE_VARPRO_READOUT 主线下，A/B 由 varpro 线性读出；
+# 这里不是 full-fit nonlinear local keys，只用于扫描阶段的兼容性重优化入口。
 SCAN_REOPT_LOCAL_KEYS = ["A_obs", "B_obs"]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = list(FULL_FIT_GLOBAL_KEYS)
 
+# Legacy/manual initialization compatibility:
+# 保留 A_obs / B0_obs / B1_obs / pulse_width 作为基线覆盖入口，
+# 但它们不是当前 varpro full-fit 默认 nonlinear keys。
 BASELINE_OVERRIDE = {
     "S_scale": 0.0611,
     "A_obs": 0.0425,
