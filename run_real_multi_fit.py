@@ -69,7 +69,7 @@ OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
 
 FULL_FIT_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS)
-FULL_FIT_LOCAL_KEYS = list(MULTI_FIT_DEFAULT_LOCAL_KEYS)
+FULL_FIT_LOCAL_KEYS = []
 # Scan reoptimize 只重调 readout 子集；命名上明确区别于 full fit。
 SCAN_REOPT_GLOBAL_KEYS: list[str] = []
 SCAN_REOPT_LOCAL_KEYS = ["A_obs", "B_obs"]
@@ -172,6 +172,7 @@ def make_initial_params() -> dict:
     p0["tau_l_sink"] = 1.5e-10
     p0["pulse_width"] = 1.5e-13
     p0["B1_obs"] = 0.0
+    p0["USE_VARPRO_READOUT"] = True
 
     return p0
 
@@ -429,10 +430,10 @@ def _print_bound_warnings(fit_bundle) -> None:
     warning_lines = []
 
     for row in fit_bundle["dataset_summary"]:
-        dt_local_ps = float(row.get("dt_local_ps", float("nan")))
-        if abs(dt_local_ps) >= 0.275:
+        dt_i_ps = float(row.get("dt_i_ps", float("nan")))
+        if abs(dt_i_ps) >= 0.95:
             warning_lines.append(
-                f"[warning] dt_local near bound: {row['dataset_name']} dt_local_ps={dt_local_ps:.3f}"
+                f"[warning] dt_i near bound: {row['dataset_name']} dt_i_ps={dt_i_ps:.3f}"
             )
 
     global_lb, global_ub = _get_bounds_for_keys(ROUND1_GLOBAL_BOUND_WARNING_KEYS)
@@ -460,6 +461,7 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
     print(f"cost    = {res.cost:.6e}")
     print(f"nfev    = {res.nfev}")
     print(f"mode    = {fit_bundle['observable_mode']}")
+    print(f"varpro  = {fit_bundle.get('use_varpro_readout')}")
     print(f"locals  = {fit_bundle['local_keys']}")
     print(f"wall_time_sec = {wall_time_sec:.1f}")
 
@@ -469,18 +471,19 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
         print(f"  {k:20s} = {v:.8g}")
 
     print("\n=== dataset summary ===")
-    print("  dataset | fluence | rms | wrms | dt_local_ps | A_obs | B_obs | B_eff_obs | B0_obs | B1_obs")
+    print("  dataset | fluence | rms | wrms | dt_i_ps | A_obs | B_obs | B_eff_obs | sigma_irf_ps | B0_obs | B1_obs")
     for row in fit_bundle["dataset_summary"]:
-        dt_local_ps = row.get("dt_local_ps", float("nan"))
+        dt_i_ps = row.get("dt_i_ps", float("nan"))
         print(
             f"  {row['dataset_name']:>22s} | "
             f"fluence={row['fluence_ratio']:.2f} | "
             f"rms={row['rms']:.4e} | "
             f"wrms={row['wrms']:.4e} | "
-            f"dt_local_ps={dt_local_ps:.4f} | "
+            f"dt_i_ps={dt_i_ps:.4f} | "
             f"A_obs={float(row.get('A_obs', float('nan'))):.6g} | "
             f"B_obs={float(row.get('B_obs', float('nan'))):.6g} | "
             f"B_eff_obs={float(row.get('B_eff_obs', float('nan'))):.6g} | "
+            f"sigma_irf_ps={float(row.get('sigma_irf_ps', float('nan'))):.6g} | "
             f"B0_obs={float(row.get('B0_obs', float('nan'))):.6g} | "
             f"B1_obs={float(row.get('B1_obs', float('nan'))):.6g}"
         )

@@ -108,10 +108,13 @@ def default_params() -> dict:
     p["pulse_width"] = 120e-15
     p["t0_pulse"] = 0.0
     p["S_scale"] = 5e-4
+    p["dt0_ps"] = 0.0
+    p["sigma_irf_ps"] = 0.20
+    p["alpha_dt_per_F"] = 0.0
     p["A_obs"] = 0.04
+    p["B_obs"] = 0.02
     p["B0_obs"] = 0.02
     p["B1_obs"] = 0.0
-    p["B_obs"] = p["B0_obs"]
 
     # ========================================================
     # Effective transfer channels (W/m^3/K)
@@ -234,9 +237,12 @@ MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
     "G_el0",
     "tau_l_sink",
     "tau_s_sink",
+    "dt0_ps",
+    "sigma_irf_ps",
 ]
 
-MULTI_FIT_DEFAULT_LOCAL_KEYS = ["dt_local", "A_obs", "B_obs"]
+MULTI_FIT_OPTIONAL_GLOBAL_KEYS = ["alpha_dt_per_F"]
+MULTI_FIT_DEFAULT_LOCAL_KEYS = []
 MULTI_FIT_DEFAULT_OBSERVABLE_MODE = "raw_m_chi2q"
 
 def clipT(T: float, Tmin: float = 1e-6, Tmax: float = 8e4) -> float:
