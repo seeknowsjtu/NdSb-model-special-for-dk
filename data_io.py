@@ -74,7 +74,8 @@ POSITIVE_FIT_KEYS = {
 
 LOCAL_KEY_BOUNDS = {
     "dt_local": (-1e-12, 1e-12),
-    "A_obs": (1e-5, 2e-2),
+    "A_obs": (1e-4, 1.5e-1),
+    "B_obs": (-2e-2, 8e-2),
 }
 
 
@@ -458,7 +459,19 @@ def build_observable(sim, p_global, p_local, observable_mode):
     eta = np.asarray(sim["eta"], dtype=float)
     m = np.asarray(sim["m"], dtype=float)
     A_obs = float(p_local.get("A_obs", p_global.get("A_obs", 1.0)))
-    B_obs = float(p_local.get("B_obs", p_global.get("B_obs", 0.0)))
+    F = float(p_global.get("fluence_multiplier", 1.0))
+
+    def _legacy_b_eff():
+        return float(p_global.get("B0_obs", 0.0)) + float(p_global.get("B1_obs", 0.0)) * (F - 1.0)
+
+    def _pick_b_eff(allow_global_b_obs=True):
+        if "B_obs" in p_local:
+            return float(p_local["B_obs"])
+        if allow_global_b_obs and "B_obs" in p_global:
+            return float(p_global["B_obs"])
+        return _legacy_b_eff()
+
+    B_obs = _pick_b_eff(allow_global_b_obs=True)
 
     if mode == "eta":
         return B_obs + A_obs * eta
@@ -477,15 +490,14 @@ def build_observable(sim, p_global, p_local, observable_mode):
         return B_obs + A_obs * (m * chi2q)
     if mode == "raw_chi2q":
         chi2q = _compute_chi2q(sim)
-        return B_obs + A_obs * chi2q
+        return _pick_b_eff(allow_global_b_obs=False) + A_obs * chi2q
     if mode == "raw_m_chi2q":
         chi2q = _compute_chi2q(sim)
-        F = float(p_global.get("fluence_multiplier", 1.0))
-        B_eff = float(p_global.get("B0_obs", 0.0)) + float(p_global.get("B1_obs", 0.0)) * (F - 1.0)
+        B_eff = _pick_b_eff(allow_global_b_obs=False)
 
         return B_eff + A_obs * (m * chi2q)
     if mode == "raw_eta":
-        return B_obs + A_obs * eta
+        return _pick_b_eff(allow_global_b_obs=False) + A_obs * eta
 
     raise ValueError(
         "Unsupported observable_mode='{mode}'. Expected one of: "
@@ -844,7 +856,12 @@ def fit_params_multi(
         B0 = float(best_global_params.get("B0_obs", np.nan))
         B1 = float(best_global_params.get("B1_obs", np.nan))
         F = float(dataset["fluence_ratio"])
-        b_eff_summary = B0 + B1 * (F - 1.0)
+        if "B_obs" in local_best:
+            b_obs_summary = float(local_best["B_obs"])
+            b_eff_summary = b_obs_summary
+        else:
+            b_obs_summary = float(np.nan)
+            b_eff_summary = B0 + B1 * (F - 1.0)
 
         rms = float(np.sqrt(np.mean((evaluated["S_fit"] - evaluated["S_exp"]) ** 2)))
         wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))
@@ -860,6 +877,7 @@ def fit_params_multi(
             "wrms": wrms,
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
             "A_obs": a_obs_summary,
+            "B_obs": b_obs_summary,
             "B_eff_obs": b_eff_summary,
             "B0_obs": float(best_global_params.get("B0_obs", np.nan)),
             "B1_obs": float(best_global_params.get("B1_obs", np.nan)),
@@ -963,6 +981,7 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                 "wrms",
                 "dt_local_ps",
                 "A_obs",
+                "B_obs",
                 "B_eff_obs",
                 "B0_obs",
                 "B1_obs",
@@ -1025,6 +1044,8 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     flu = [row["fluence_ratio"] for row in fit_bundle["dataset_summary"]]
     axes[1].plot(flu, [row["dt_local_ps"] for row in fit_bundle["dataset_summary"]], marker="o", label="dt_local_ps")
     axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
+    if any(np.isfinite(float(row.get("B_obs", np.nan))) for row in fit_bundle["dataset_summary"]):
+        axes[1].plot(flu, [row.get("B_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="B_obs")
     axes[1].plot(flu, [row["B_eff_obs"] for row in fit_bundle["dataset_summary"]], marker="^", label="B_eff_obs")
     axes[1].set_xlabel("fluence ratio / mW label")
     axes[1].set_title("Per-dataset effective readout")

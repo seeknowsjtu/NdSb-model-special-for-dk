@@ -131,7 +131,7 @@ if GUI_AVAILABLE:
             self._refresh_entries_from_params(self.p, view="p")
             self._plot_empty()
             self._log("Ready. Load CSV with headers like: tps, teK, tsK, tlK, S.")
-            self._log("Multi-fit preset: observable=raw_m_chi2q | local_keys=dt_local.")
+            self._log("Multi-fit preset: observable=raw_m_chi2q | local_keys=dt_local,A_obs,B_obs.")
 
         # ====================================================
         # UI build
@@ -735,13 +735,15 @@ if GUI_AVAILABLE:
                 for row in fit_bundle["dataset_summary"]:
                     dt_local_ps = float(row.get("dt_local_ps", np.nan))
                     a_obs = float(row.get("A_obs", np.nan))
+                    b_obs = float(row.get("B_obs", np.nan))
                     b_eff_obs = float(row.get("B_eff_obs", np.nan))
                     b0_obs = float(row.get("B0_obs", np.nan))
                     b1_obs = float(row.get("B1_obs", np.nan))
                     self._log(
                         f"    [local] {row['dataset_name']} | rms={row['rms']:.4g} | wrms={row['wrms']:.4g} | "
                         f"dt_local_ps={dt_local_ps:.4g} | A_obs={a_obs:.4g} | "
-                        f"B_eff_obs={b_eff_obs:.4g} | B0_obs={b0_obs:.4g} | B1_obs={b1_obs:.4g}"
+                        f"B_obs={b_obs:.4g} | B_eff_obs={b_eff_obs:.4g} | "
+                        f"B0_obs={b0_obs:.4g} | B1_obs={b1_obs:.4g}"
                     )
             except Exception as e:
                 messagebox.showerror("Multi-fit error", str(e))
