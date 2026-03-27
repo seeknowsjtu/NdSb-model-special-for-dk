@@ -78,6 +78,13 @@ LOCAL_KEY_BOUNDS = {
     "B_obs": (-2e-2, 8e-2),
 }
 
+VARPRO_READOUT_BOUNDS = {
+    "A_obs": (1e-4, 1.5e-1),
+    "B_obs": (-2e-2, 8e-2),
+}
+
+USE_VARPRO_READOUT = True
+
 
 # ============================================================
 # CSV loader (auto-detect columns; supports Te/Ts/Tl/S)
@@ -279,6 +286,12 @@ def _get_bounds_for_keys(keys):
             lb.append(10e-15); ub.append(5e-12)
         elif k == "t0_pulse":
             lb.append(-2e-12); ub.append(2e-12)
+        elif k == "dt0_ps":
+            lb.append(-1.0); ub.append(1.0)
+        elif k == "sigma_irf_ps":
+            lb.append(0.02); ub.append(1.0)
+        elif k == "alpha_dt_per_F":
+            lb.append(-0.5); ub.append(0.5)
         elif k == "alpha_gap":
             lb.append(0.0); ub.append(2.0)
         elif k == "gap0_meV":
@@ -433,6 +446,131 @@ def _compute_chi2q(sim):
     eta = np.asarray(sim["eta"], dtype=float)
     eta_clip = np.clip(eta, -1.0, 1.0)
     return np.sqrt(np.maximum(0.0, 1.0 - eta_clip ** 2))
+
+
+def _gaussian_irf_kernel(dt_ps, sigma_ps, half_width_sigma=5):
+    sigma_ps = float(sigma_ps)
+    if sigma_ps <= 0.0:
+        return np.array([1.0], dtype=float)
+    dt_ps = float(abs(dt_ps))
+    if dt_ps <= 0.0 or not np.isfinite(dt_ps):
+        dt_ps = sigma_ps / 5.0
+    half_width_ps = float(max(half_width_sigma, 1.0) * sigma_ps)
+    n_half = int(np.ceil(half_width_ps / dt_ps))
+    x = np.arange(-n_half, n_half + 1, dtype=float) * dt_ps
+    kernel = np.exp(-0.5 * (x / sigma_ps) ** 2)
+    kernel_sum = float(np.sum(kernel))
+    if kernel_sum <= 0.0 or not np.isfinite(kernel_sum):
+        return np.array([1.0], dtype=float)
+    return kernel / kernel_sum
+
+
+def _convolve_with_irf(y, t_ps, sigma_ps):
+    y_arr = np.asarray(y, dtype=float)
+    if float(sigma_ps) <= 0.0:
+        return y_arr.copy()
+    t_ps = np.asarray(t_ps, dtype=float)
+    if y_arr.ndim != 1 or t_ps.ndim != 1 or y_arr.size != t_ps.size:
+        raise ValueError("_convolve_with_irf expects 1D y/t_ps with the same length.")
+    if y_arr.size < 3:
+        return y_arr.copy()
+    diffs = np.diff(t_ps)
+    finite_diffs = diffs[np.isfinite(diffs)]
+    if finite_diffs.size == 0:
+        return y_arr.copy()
+    dt_est = float(np.mean(np.abs(finite_diffs)))
+    if not np.isfinite(dt_est) or dt_est <= 0.0:
+        return y_arr.copy()
+    kernel = _gaussian_irf_kernel(dt_est, float(sigma_ps))
+    return np.convolve(y_arr, kernel, mode="same")
+
+
+def solve_linear_readout_ab(y_obs, template_u, weights=None, bounds=None):
+    y_obs = np.asarray(y_obs, dtype=float)
+    template_u = np.asarray(template_u, dtype=float)
+    if y_obs.shape != template_u.shape or y_obs.ndim != 1:
+        raise ValueError("solve_linear_readout_ab expects y_obs/template_u as 1D arrays with same shape.")
+
+    X = np.column_stack([template_u, np.ones_like(template_u)])
+    y = y_obs
+    if weights is not None:
+        w = np.asarray(weights, dtype=float)
+        if w.shape != y_obs.shape:
+            raise ValueError("weights must match y_obs shape.")
+        sw = np.sqrt(np.clip(w, 0.0, np.inf))
+        Xw = X * sw[:, None]
+        yw = y * sw
+    else:
+        w = None
+        Xw = X
+        yw = y
+
+    coef, *_ = np.linalg.lstsq(Xw, yw, rcond=None)
+    A_best = float(coef[0])
+    B_best = float(coef[1])
+
+    if bounds is not None:
+        a_lo, a_hi = bounds.get("A_obs", (-np.inf, np.inf))
+        b_lo, b_hi = bounds.get("B_obs", (-np.inf, np.inf))
+        A_best = float(np.clip(A_best, a_lo, a_hi))
+        B_best = float(np.clip(B_best, b_lo, b_hi))
+
+    y_fit = B_best + A_best * template_u
+    residual = y_fit - y_obs
+    rss = float(np.sum(residual ** 2))
+    wrss = float(np.sum((residual ** 2) * w)) if w is not None else None
+    return {
+        "A_best": A_best,
+        "B_best": B_best,
+        "y_fit": y_fit,
+        "rss": rss,
+        "wrss": wrss,
+    }
+
+
+def build_observable_template_only(
+    p_global,
+    p_dataset,
+    observable_mode,
+    *,
+    debye_obj=None,
+    with_diag=False,
+    F_ref=1.0,
+):
+    mode = str(observable_mode).strip().lower()
+    if mode not in {"raw_m_chi2q", "raw_chi2q", "raw_eta"}:
+        raise ValueError(f"build_observable_template_only unsupported mode: {observable_mode}")
+
+    fluence_ratio = float(p_dataset.get("fluence_ratio", p_global.get("fluence_multiplier", 1.0)))
+    dt_i_ps = float(p_global.get("dt0_ps", 0.0))
+    if "alpha_dt_per_F" in p_global:
+        dt_i_ps += float(p_global.get("alpha_dt_per_F", 0.0)) * (fluence_ratio - float(F_ref))
+    sigma_irf_ps = float(p_global.get("sigma_irf_ps", 0.0))
+
+    t = np.asarray(p_dataset["t"], dtype=float)
+    t_model = t - dt_i_ps * 1e-12
+    p_run = dict(p_global)
+    p_run["fluence_multiplier"] = fluence_ratio
+    model = NdSb3TM(p_run, debye_obj=debye_obj)
+    sim = model.simulate_aligned(t_model, with_diag=with_diag)
+
+    if mode == "raw_eta":
+        u = np.asarray(sim["eta"], dtype=float)
+    elif mode == "raw_chi2q":
+        u = np.asarray(_compute_chi2q(sim), dtype=float)
+    else:
+        m = np.asarray(sim["m"], dtype=float)
+        chi2q = np.asarray(_compute_chi2q(sim), dtype=float)
+        u = m * chi2q
+
+    template_u = _convolve_with_irf(u, t * 1e12, sigma_irf_ps)
+    return {
+        "template_u": template_u,
+        "dt_i_ps": float(dt_i_ps),
+        "sigma_irf_ps": float(sigma_irf_ps),
+        "sim": sim,
+        "t_model": t_model,
+    }
 
 
 def build_observable(sim, p_global, p_local, observable_mode):
@@ -612,16 +750,12 @@ def fit_params_multi(
     enable_timing=True,
 ):
     """
-    Jointly fit multiple S datasets using shared global parameters and
-    per-dataset local parameters.
+    Jointly fit multiple S datasets.
 
-    Notes
-    -----
-    * Each dataset keeps its own original time array; no interpolation, no
-      padding, and no resampling are performed.
-    * ``dataset['fluence_ratio']`` is written directly into
-      ``p['fluence_multiplier']`` and is never treated as a fit parameter.
-    * Residual vectors from all datasets are concatenated directly.
+    Default mainline uses variable projection for readout in raw_m_chi2q mode:
+      - nonlinear: global parameters only
+      - linear (per-dataset each residual call): A_obs, B_obs
+    Legacy local nonlinear readout can be restored by setting USE_VARPRO_READOUT=False.
     """
     if not datasets:
         raise ValueError("fit_params_multi: datasets must be a non-empty list.")
@@ -632,10 +766,11 @@ def fit_params_multi(
     if local_keys is None:
         local_keys = MULTI_FIT_DEFAULT_LOCAL_KEYS
     global_keys = normalize_fit_keys(global_keys)
-    local_keys = list(local_keys)
+    requested_local_keys = list(local_keys)
 
     sigma_S = float(max(sigma_S, 1e-12))
     debye_obj = DebyeCl(thetaD=float(p0["ThetaD"]))
+    use_varpro = bool(p0.get("USE_VARPRO_READOUT", USE_VARPRO_READOUT)) and str(observable_mode).strip().lower() == "raw_m_chi2q"
 
     validated = []
     for i, dataset in enumerate(datasets):
@@ -653,10 +788,8 @@ def fit_params_multi(
         if fluence_ratio is None:
             raise ValueError(f"Dataset '{name}' is missing required key 'fluence_ratio'.")
 
-        local_defaults = {
-            "dt_local": 0.0,
-        }
-        for key in local_keys:
+        local_defaults = {"dt_local": 0.0}
+        for key in requested_local_keys:
             if key in dataset:
                 local_defaults[key] = float(dataset[key])
             elif key in p0:
@@ -676,14 +809,23 @@ def fit_params_multi(
             "local_init": local_defaults,
         })
 
+    if use_varpro:
+        effective_local_keys = []
+    else:
+        effective_local_keys = list(requested_local_keys)
+
     global_lb, global_ub = _build_fit_bounds(global_keys, _get_bounds_for_keys)
-    local_lb, local_ub = _build_fit_bounds(local_keys, _get_multi_local_bounds)
+    if effective_local_keys:
+        local_lb, local_ub = _build_fit_bounds(effective_local_keys, _get_multi_local_bounds)
+    else:
+        local_lb = np.array([], dtype=float)
+        local_ub = np.array([], dtype=float)
 
     x0_parts = [_pack_params(p0, global_keys)]
     lb_parts = [global_lb]
     ub_parts = [global_ub]
     for dataset in validated:
-        x0_parts.append(_pack_params(dataset["local_init"], local_keys))
+        x0_parts.append(_pack_params(dataset["local_init"], effective_local_keys))
         lb_parts.append(local_lb)
         ub_parts.append(local_ub)
 
@@ -697,7 +839,7 @@ def fit_params_multi(
     x0 = np.minimum(np.maximum(x0, lb + eps), ub - eps)
 
     n_global = len(global_keys)
-    n_local = len(local_keys)
+    n_local = len(effective_local_keys)
     enable_timing = bool(enable_timing)
     progress_every = int(progress_every) if progress_every is not None else 0
     residual_call_count = 0
@@ -752,18 +894,51 @@ def fit_params_multi(
 
     def _evaluate_dataset(p_global, dataset, local_x, with_diag=False):
         eval_start = perf_counter() if enable_timing else None
-        p_local = dict(dataset["local_init"])
-        _unpack_params(p_local, local_keys, local_x)
 
         p_dataset = dict(p0)
         p_dataset.update(p_global)
-        p_dataset["fluence_multiplier"] = float(dataset["fluence_ratio"])
+        p_dataset["fluence_ratio"] = float(dataset["fluence_ratio"])
+        p_dataset["t"] = np.asarray(dataset["t"], dtype=float)
 
-        dt_local = float(p_local.get("dt_local", 0.0))
-        t_model = np.asarray(dataset["t"], dtype=float) - dt_local
-        model = NdSb3TM(p_dataset, debye_obj=debye_obj)
-        sim = model.simulate_aligned(t_model, with_diag=with_diag)
-        S_fit = build_observable(sim, p_dataset, p_local, observable_mode)
+        if use_varpro:
+            template_info = build_observable_template_only(
+                p_global,
+                p_dataset,
+                observable_mode,
+                debye_obj=debye_obj,
+                with_diag=with_diag,
+                F_ref=1.0,
+            )
+            y_obs = np.asarray(dataset["S"], dtype=float)
+            weights = np.full_like(y_obs, 1.0 / (sigma_S ** 2), dtype=float)
+            lin = solve_linear_readout_ab(
+                y_obs,
+                template_info["template_u"],
+                weights=weights,
+                bounds=VARPRO_READOUT_BOUNDS,
+            )
+            p_local = {
+                "A_obs": float(lin["A_best"]),
+                "B_obs": float(lin["B_best"]),
+                "dt_local": 0.0,
+            }
+            S_fit = np.asarray(lin["y_fit"], dtype=float)
+            dt_i_ps = float(template_info["dt_i_ps"])
+            sigma_irf_ps = float(template_info["sigma_irf_ps"])
+            sim = template_info["sim"]
+            t_model = np.asarray(template_info["t_model"], dtype=float)
+        else:
+            p_local = dict(dataset["local_init"])
+            _unpack_params(p_local, effective_local_keys, local_x)
+            p_dataset["fluence_multiplier"] = float(dataset["fluence_ratio"])
+            dt_local = float(p_local.get("dt_local", 0.0))
+            t_model = np.asarray(dataset["t"], dtype=float) - dt_local
+            model = NdSb3TM(p_dataset, debye_obj=debye_obj)
+            sim = model.simulate_aligned(t_model, with_diag=with_diag)
+            S_fit = build_observable(sim, p_dataset, p_local, observable_mode)
+            dt_i_ps = float(dt_local * 1e12)
+            sigma_irf_ps = float(p_global.get("sigma_irf_ps", np.nan))
+
         residual = (S_fit - dataset["S"]) / sigma_S
 
         wall_time_sec = max(perf_counter() - eval_start, 0.0) if enable_timing and eval_start is not None else 0.0
@@ -793,6 +968,8 @@ def fit_params_multi(
             "local_params": p_local,
             "params": p_dataset,
             "diag": sim.get("diag"),
+            "dt_i_ps": dt_i_ps,
+            "sigma_irf_ps": sigma_irf_ps,
             "wall_time_sec": float(wall_time_sec),
             "avg_wall_time_sec": float(stats["avg_wall_time_sec"]),
         }
@@ -847,11 +1024,6 @@ def fit_params_multi(
         evaluated = _evaluate_dataset(best_global_params, dataset, local_x, with_diag=True)
         local_best = dict(evaluated["local_params"])
         best_local_params[dataset["name"]] = local_best
-        a_obs_summary = (
-            float(local_best["A_obs"])
-            if "A_obs" in local_keys
-            else float(best_global_params.get("A_obs", np.nan))
-        )
 
         B0 = float(best_global_params.get("B0_obs", np.nan))
         B1 = float(best_global_params.get("B1_obs", np.nan))
@@ -863,6 +1035,7 @@ def fit_params_multi(
             b_obs_summary = float(np.nan)
             b_eff_summary = B0 + B1 * (F - 1.0)
 
+        a_obs_summary = float(local_best.get("A_obs", best_global_params.get("A_obs", np.nan)))
         rms = float(np.sqrt(np.mean((evaluated["S_fit"] - evaluated["S_exp"]) ** 2)))
         wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))
         evaluated["rms"] = rms
@@ -870,27 +1043,32 @@ def fit_params_multi(
         dataset_fits.append(evaluated)
         dataset_summary.append({
             "dataset_name": dataset["name"],
+            "dataset": dataset["name"],
             "path": dataset["path"],
             "fluence_ratio": float(dataset["fluence_ratio"]),
             "n_points": int(evaluated["t"].size),
             "rms": rms,
             "wrms": wrms,
+            "dt_i_ps": float(evaluated["dt_i_ps"]),
             "dt_local_ps": float(local_best.get("dt_local", 0.0) * 1e12),
             "A_obs": a_obs_summary,
             "B_obs": b_obs_summary,
             "B_eff_obs": b_eff_summary,
+            "sigma_irf_ps": float(evaluated.get("sigma_irf_ps", np.nan)),
             "B0_obs": float(best_global_params.get("B0_obs", np.nan)),
             "B1_obs": float(best_global_params.get("B1_obs", np.nan)),
             "wall_time_sec": float(evaluated["wall_time_sec"]),
             "avg_wall_time_sec": float(evaluated["avg_wall_time_sec"]),
-        })        
+        })
 
     timing_summary = _build_timing_summary()
 
     fit_bundle = {
         "observable_mode": str(observable_mode),
+        "use_varpro_readout": bool(use_varpro),
         "global_keys": list(global_keys),
-        "local_keys": list(local_keys),
+        "local_keys": list(effective_local_keys),
+        "legacy_local_keys_requested": list(requested_local_keys),
         "best_global_params": best_global_params,
         "best_local_params": best_local_params,
         "dataset_fits": dataset_fits,
@@ -973,16 +1151,19 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
         writer = csv.DictWriter(
             fh,
             fieldnames=[
+                "dataset",
                 "dataset_name",
                 "path",
                 "fluence_ratio",
                 "n_points",
                 "rms",
                 "wrms",
+                "dt_i_ps",
                 "dt_local_ps",
                 "A_obs",
                 "B_obs",
                 "B_eff_obs",
+                "sigma_irf_ps",
                 "B0_obs",
                 "B1_obs",
                 "wall_time_sec",
@@ -1042,7 +1223,7 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     axes[0].grid(alpha=0.3, axis="y")
 
     flu = [row["fluence_ratio"] for row in fit_bundle["dataset_summary"]]
-    axes[1].plot(flu, [row["dt_local_ps"] for row in fit_bundle["dataset_summary"]], marker="o", label="dt_local_ps")
+    axes[1].plot(flu, [row.get("dt_i_ps", np.nan) for row in fit_bundle["dataset_summary"]], marker="o", label="dt_i_ps")
     axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
     if any(np.isfinite(float(row.get("B_obs", np.nan))) for row in fit_bundle["dataset_summary"]):
         axes[1].plot(flu, [row.get("B_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="B_obs")
