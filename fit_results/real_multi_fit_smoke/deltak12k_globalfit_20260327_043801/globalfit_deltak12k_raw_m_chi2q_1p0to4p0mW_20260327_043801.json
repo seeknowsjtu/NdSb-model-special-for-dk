@@ -1,0 +1,266 @@
+{
+  "observable_mode": "raw_m_chi2q",
+  "global_keys": [
+    "S_scale",
+    "A_obs",
+    "B0_obs",
+    "G_es0",
+    "G_el0",
+    "tau_l_sink",
+    "tau_s_sink"
+  ],
+  "local_keys": [
+    "dt_local"
+  ],
+  "best_global_params": {
+    "T_bath": 4.0,
+    "use_hot_steady_init": 1,
+    "hot_init_mode": "avg_power",
+    "T_init_eff": 4.0,
+    "rep_rate_Hz": 500000.0,
+    "preheat_use_lattice_only": 1,
+    "preheat_max_dT": 30.0,
+    "preheat_solver_tol": 1e-06,
+    "TN": 15.0,
+    "TR": 13.0,
+    "ThetaD": 200.0,
+    "eta_enable": 1,
+    "eta_representation": "cos2phi",
+    "eta_mode": "second",
+    "Gamma_eta": 500000000000.0,
+    "Gamma_eta_low_frac": 0.001,
+    "eta_dT": 0.3,
+    "a_eta0": 2.0,
+    "b_eta": 20.0,
+    "c_eta": 200.0,
+    "g_m2eta2": 0.0,
+    "lam_m2": 0.0,
+    "eta_clip": 1.2,
+    "eta_sign": 1,
+    "gamma_PM_molar": 0.002,
+    "alpha_gap": 0.0,
+    "gap0_meV": 40.0,
+    "gamma_min_frac": 0.2,
+    "gap_eta_coupling": 0.0,
+    "fluence_multiplier": 8.0,
+    "fluence_base_J_m2": 1.0,
+    "delta_opt": 2e-08,
+    "pulse_width": 1.5e-13,
+    "t0_pulse": 0.0,
+    "S_scale": 0.048071880118040616,
+    "G_el0": 472769392728993.3,
+    "G_es0": 943701671606463.2,
+    "G_sl0": 304000000000000.0,
+    "G_el_Tpow": 0.0,
+    "G_es_floor_frac": 0.1,
+    "G_es_m_power": 2.0,
+    "G_es_eta_coupling": 0.0,
+    "G_sl_TR_boost": 0.5,
+    "G_sl_TR_w": 1.2,
+    "G_sl_TN_boost": 0.5,
+    "G_sl_TN_w": 1.5,
+    "G_sl_eta_coupling": 0.0,
+    "tau_e_sink": 2e-10,
+    "tau_s_sink": 5.018241520745845e-10,
+    "tau_l_sink": 2.936536628430586e-10,
+    "sw_model": "magnon",
+    "A_sw_2q": 0.0025,
+    "A_sw_1q": 0.0018,
+    "J1_old_K": -0.0575,
+    "J2_old_K": 0.1367,
+    "J_renorm": 1.1029411764705883,
+    "J_2q_scale": 1.0,
+    "J_1q_scale": 1.0,
+    "S_eff": 0.5,
+    "mag_gap_meV": 0.05,
+    "magnon_grid": 32,
+    "Cs_scale": 1.0,
+    "lambda_amp": 3.0,
+    "lambda_w": 0.7,
+    "latent_amp": 2.0,
+    "latent_w": 0.5,
+    "cef_E1_meV": 1.6,
+    "cef_E2_meV": 8.8,
+    "cef_g0": 4,
+    "cef_g1": 2,
+    "cef_g2": 4,
+    "tau_m0": 3e-11,
+    "tau_m_crit_amp": 0.0,
+    "nu": 1.0,
+    "eps_crit": 0.03,
+    "tau_m_max": 4e-10,
+    "S_offset": 0.0,
+    "S_amp": 1.0,
+    "S_power": 2.0,
+    "G_es_mode": "m2",
+    "G_es_TR_sharpness": 0.5,
+    "G_sl_mode": "gaussian",
+    "A_obs": 0.04964797547841091,
+    "B0_obs": 0.019332162486707216,
+    "B1_obs": 0.0
+  },
+  "best_local_params": {
+    "deltak12k_1p0mW.csv": {
+      "dt_local": 5.906909654145866e-13
+    },
+    "deltak12k_2p0mW.csv": {
+      "dt_local": 6.894600719751209e-13
+    },
+    "deltak12k_2p5mW.csv": {
+      "dt_local": 2.698234693190176e-13
+    },
+    "deltak12k_3p0mW.csv": {
+      "dt_local": -6.502843881964895e-13
+    },
+    "deltak12k_3p5mW.csv": {
+      "dt_local": 2.763099600723774e-13
+    },
+    "deltak12k_4p0mW.csv": {
+      "dt_local": -8.942942723375995e-13
+    }
+  },
+  "optimizer_summary": {
+    "success": true,
+    "status": 3,
+    "cost": 1.3906826239958305,
+    "nfev": 16,
+    "message": "`xtol` termination condition is satisfied."
+  },
+  "dataset_summary": [
+    {
+      "dataset_name": "deltak12k_1p0mW.csv",
+      "path": "deltak12k_1p0mW.csv",
+      "fluence_ratio": 1.0,
+      "n_points": 22,
+      "rms": 0.0024996448794893118,
+      "wrms": 0.12498224397446556,
+      "dt_local_ps": 0.5906909654145865,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 2.3207886000163853,
+      "avg_wall_time_sec": 2.2180774938968213
+    },
+    {
+      "dataset_name": "deltak12k_2p0mW.csv",
+      "path": "deltak12k_2p0mW.csv",
+      "fluence_ratio": 2.0,
+      "n_points": 22,
+      "rms": 0.0023287611307797186,
+      "wrms": 0.11643805653898594,
+      "dt_local_ps": 0.6894600719751208,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 2.4279599000001326,
+      "avg_wall_time_sec": 2.2160358731578125
+    },
+    {
+      "dataset_name": "deltak12k_2p5mW.csv",
+      "path": "deltak12k_2p5mW.csv",
+      "fluence_ratio": 2.5,
+      "n_points": 22,
+      "rms": 0.0025300033089853007,
+      "wrms": 0.12650016544926504,
+      "dt_local_ps": 0.26982346931901763,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 2.479551399941556,
+      "avg_wall_time_sec": 2.219728239019765
+    },
+    {
+      "dataset_name": "deltak12k_3p0mW.csv",
+      "path": "deltak12k_3p0mW.csv",
+      "fluence_ratio": 3.0,
+      "n_points": 19,
+      "rms": 0.004042268784542252,
+      "wrms": 0.2021134392271126,
+      "dt_local_ps": -0.6502843881964896,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 2.144675499992445,
+      "avg_wall_time_sec": 1.9206124487781624
+    },
+    {
+      "dataset_name": "deltak12k_3p5mW.csv",
+      "path": "deltak12k_3p5mW.csv",
+      "fluence_ratio": 3.5,
+      "n_points": 12,
+      "rms": 0.0032617914450468544,
+      "wrms": 0.16308957225234275,
+      "dt_local_ps": 0.2763099600723774,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 1.257052900036797,
+      "avg_wall_time_sec": 1.2048487304866018
+    },
+    {
+      "dataset_name": "deltak12k_4p0mW.csv",
+      "path": "deltak12k_4p0mW.csv",
+      "fluence_ratio": 4.0,
+      "n_points": 8,
+      "rms": 0.006371931344422651,
+      "wrms": 0.3185965672211325,
+      "dt_local_ps": -0.8942942723375995,
+      "A_obs": 0.04964797547841091,
+      "B_eff_obs": 0.019332162486707216,
+      "B0_obs": 0.019332162486707216,
+      "B1_obs": 0.0,
+      "wall_time_sec": 0.8926543000852689,
+      "avg_wall_time_sec": 0.8202879219457916
+    }
+  ],
+  "timing_summary": {
+    "residual_call_count": 81,
+    "elapsed_sec": 869.1865642999765,
+    "avg_residual_sec": 10.730698324691067,
+    "estimated_total_calls": 400,
+    "rough_eta_sec": 3423.0927655764503,
+    "per_dataset": {
+      "deltak12k_1p0mW.csv": {
+        "dataset_name": "deltak12k_1p0mW.csv",
+        "wall_time_total_sec": 181.88235449953936,
+        "call_count": 82,
+        "avg_wall_time_sec": 2.2180774938968213
+      },
+      "deltak12k_2p0mW.csv": {
+        "dataset_name": "deltak12k_2p0mW.csv",
+        "wall_time_total_sec": 181.71494159894064,
+        "call_count": 82,
+        "avg_wall_time_sec": 2.2160358731578125
+      },
+      "deltak12k_2p5mW.csv": {
+        "dataset_name": "deltak12k_2p5mW.csv",
+        "wall_time_total_sec": 182.01771559962071,
+        "call_count": 82,
+        "avg_wall_time_sec": 2.219728239019765
+      },
+      "deltak12k_3p0mW.csv": {
+        "dataset_name": "deltak12k_3p0mW.csv",
+        "wall_time_total_sec": 157.49022079980932,
+        "call_count": 82,
+        "avg_wall_time_sec": 1.9206124487781624
+      },
+      "deltak12k_3p5mW.csv": {
+        "dataset_name": "deltak12k_3p5mW.csv",
+        "wall_time_total_sec": 98.79759589990135,
+        "call_count": 82,
+        "avg_wall_time_sec": 1.2048487304866018
+      },
+      "deltak12k_4p0mW.csv": {
+        "dataset_name": "deltak12k_4p0mW.csv",
+        "wall_time_total_sec": 67.26360959955491,
+        "call_count": 82,
+        "avg_wall_time_sec": 0.8202879219457916
+      }
+    }
+  }
+}
