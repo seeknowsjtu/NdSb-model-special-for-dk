@@ -71,8 +71,8 @@ ENABLE_TIMING = True
 FULL_FIT_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS)
 FULL_FIT_LOCAL_KEYS = list(MULTI_FIT_DEFAULT_LOCAL_KEYS)
 # Scan reoptimize 只重调 readout 子集；命名上明确区别于 full fit。
-SCAN_REOPT_GLOBAL_KEYS = ["S_scale", "A_obs", "B0_obs", "B1_obs"]
-SCAN_REOPT_LOCAL_KEYS: list[str] = []
+SCAN_REOPT_GLOBAL_KEYS: list[str] = []
+SCAN_REOPT_LOCAL_KEYS = ["A_obs", "B_obs"]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = list(FULL_FIT_GLOBAL_KEYS)
 
 BASELINE_OVERRIDE = {
@@ -162,7 +162,10 @@ def make_initial_params() -> dict:
     p0["rep_rate_Hz"] = 5.0e5
     p0["preheat_max_dT"] = 30.0
     p0["S_scale"]   = 0.0611
+    # Current multi-fit mainline readout init is local (A_obs, B_obs).
     p0["A_obs"]     = 0.0425
+    p0["B_obs"]     = 0.0232
+    # Keep B0/B1 for legacy global-background compatibility paths.
     p0["B0_obs"]    = 0.0232
     p0["G_es0"]     = 5.65e14
     p0["G_el0"]     = 3.0e14
@@ -276,6 +279,7 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                     "wrms_2p5": wrms_map.get(2.5, float("nan")),
                     "S_scale": p_scan.get("S_scale", float("nan")),
                     "A_obs": p_scan.get("A_obs", float("nan")),
+                    "B_obs": p_scan.get("B_obs", float("nan")),
                     "B0_obs": p_scan.get("B0_obs", float("nan")),
                 }
             else:
@@ -305,9 +309,10 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                     "wrms_1p0": wrms_map.get(1.0, float("nan")),
                     "wrms_2p0": wrms_map.get(2.0, float("nan")),
                     "wrms_2p5": wrms_map.get(2.5, float("nan")),
-                    "S_scale": float(fit_bundle["best_global_params"]["S_scale"]),
-                    "A_obs": float(fit_bundle["best_global_params"]["A_obs"]),
-                    "B0_obs": float(fit_bundle["best_global_params"]["B0_obs"]),
+                    "S_scale": float(fit_bundle["best_global_params"].get("S_scale", float("nan"))),
+                    "A_obs": float(np.nanmean([float(r.get("A_obs", np.nan)) for r in fit_bundle["dataset_summary"]])),
+                    "B_obs": float(np.nanmean([float(r.get("B_obs", np.nan)) for r in fit_bundle["dataset_summary"]])),
+                    "B0_obs": float(fit_bundle["best_global_params"].get("B0_obs", float("nan"))),
                 }
 
             dt = time.perf_counter() - t0
@@ -347,6 +352,7 @@ def run_scan_suite(datasets: list[dict], p0: dict):
         "wrms_2p5",
         "S_scale",
         "A_obs",
+        "B_obs",
         "B0_obs",
     ]
     with summary_csv.open("w", newline="", encoding="utf-8") as f:
@@ -463,6 +469,7 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
         print(f"  {k:20s} = {v:.8g}")
 
     print("\n=== dataset summary ===")
+    print("  dataset | fluence | rms | wrms | dt_local_ps | A_obs | B_obs | B_eff_obs | B0_obs | B1_obs")
     for row in fit_bundle["dataset_summary"]:
         dt_local_ps = row.get("dt_local_ps", float("nan"))
         print(
@@ -472,6 +479,7 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
             f"wrms={row['wrms']:.4e} | "
             f"dt_local_ps={dt_local_ps:.4f} | "
             f"A_obs={float(row.get('A_obs', float('nan'))):.6g} | "
+            f"B_obs={float(row.get('B_obs', float('nan'))):.6g} | "
             f"B_eff_obs={float(row.get('B_eff_obs', float('nan'))):.6g} | "
             f"B0_obs={float(row.get('B0_obs', float('nan'))):.6g} | "
             f"B1_obs={float(row.get('B1_obs', float('nan'))):.6g}"

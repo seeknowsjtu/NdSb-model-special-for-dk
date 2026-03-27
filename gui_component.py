@@ -50,6 +50,7 @@ PARAMETER_FORM_SPECS = (
     ParameterSpec("Basic", "Pump", "t0_pulse", "Pulse center t0 (s)"),
     ParameterSpec("Basic", "Pump", "S_scale", "Absorption scale S_scale"),
     ParameterSpec("Basic", "Pump", "A_obs", "Readout scale A_obs"),
+    ParameterSpec("Basic", "Pump", "B_obs", "Readout background B_obs"),
     ParameterSpec("Basic", "Pump", "B0_obs", "Readout background B0_obs"),
     ParameterSpec("Basic", "Pump", "B1_obs", "Readout fluence slope B1_obs"),
     ParameterSpec("Basic", "Effective transfer channels", "G_el0", "G_e-l base (hot e → lattice)"),
