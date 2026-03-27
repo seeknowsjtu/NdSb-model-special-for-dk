@@ -32,9 +32,9 @@ CSV_FILES = [
     "deltak12k_1p0mW.csv",
     "deltak12k_2p0mW.csv",
     "deltak12k_2p5mW.csv",
-    # "deltak12k_3p0mW.csv",
-    # "deltak12k_3p5mW.csv",
-    # "deltak12k_4p0mW.csv",
+    "deltak12k_3p0mW.csv",
+    "deltak12k_3p5mW.csv",
+    "deltak12k_4p0mW.csv",
 ]
 
 DATA_DIR = Path(".")
@@ -42,15 +42,16 @@ DATA_DIR = Path(".")
 # =========================
 # 2. 运行控制
 # =========================
-RUN_MODE = "fit"                # "fit" or "scan"
-SCAN_REOPTIMIZE_READOUT = False
+RUN_MODE = "fit"               # "fit" or "scan"
+SCAN_REOPTIMIZE_READOUT = True
 SCAN_EXPORT_PLOTS = True
 SCAN_EXPORT_ROOT = "fit_results/scan_runs"
 
-HEARTBEAT_SEC = 10          # 每隔多少秒打印一次“still running”
-SMOKE_TEST = True           # 先做 smoke test
-SMOKE_MAX_NFEV = 80         # smoke test 的最大 nfev
-FULL_MAX_NFEV = 150         # 正式第一轮最大 nfev
+HEARTBEAT_SEC = 10
+
+SMOKE_TEST = True              # 扫描时建议显式关掉
+SMOKE_MAX_NFEV = 80             # 扫描模式下基本不会用到
+FULL_MAX_NFEV = 150             # 扫描模式下基本不会用到
 
 # multi-fit 相关设置
 SIGMA_S = 0.02
@@ -64,6 +65,8 @@ ROUND1_GLOBAL_KEYS = [
     "B0_obs",
     "G_es0",
     "G_el0",
+    "tau_l_sink",
+    "tau_s_sink"
 ]
 ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
     "S_scale",
@@ -71,28 +74,30 @@ ROUND1_GLOBAL_BOUND_WARNING_KEYS = [
     "B0_obs",
     "G_es0",
     "G_el0",
+    "tau_l_sink",
+    "tau_s_sink"
 ]
 
 BASELINE_OVERRIDE = {
-    "S_scale": 0.049678444824816766,
-    "A_obs": 0.046276220213400665,
-    "B0_obs": 0.023127014171826915,
+    "S_scale": 0.0611,
+    "A_obs": 0.0425,
+    "B0_obs": 0.0232,
     "B1_obs": 0.0,
     "pulse_width": 1.5e-13,
     "G_es0": 5.649878739136659e14,
-    "G_el0": 2.4346428991224066e14,
+    "G_el0": 3.0e14,
     "G_sl0": 3.04e14,
     "tau_e_sink": 2e-10,
     "tau_s_sink": 5e-09,
-    "tau_l_sink": 8e-10,
+    "tau_l_sink": 1.5e-10,
 }
 
 SCAN_SPECS = {
-    "tau_e_sink": [1e-13, 2e-13, 5e-13, 1e-12, 3e-12],
-    "tau_s_sink": [1e-12, 3e-12, 1e-11, 3e-11, 1e-10, 3e-10, 1e-9],
-    "tau_l_sink": [2e-10, 5e-10, 1e-9, 3e-9, 1e-8],
-    "G_es0": [1e14, 3e14, 1e15, 3e15, 1e16],
-    "G_el0": [1e13, 3e13, 1e14, 3e14, 5e14],
+    # "tau_e_sink": [1e-13, 2e-13, 5e-13, 1e-12, 3e-12],
+    "tau_s_sink": [3e-10, 5e-10, 1e-9, 2e-9, 3e-9, 5e-9, 1e-8],
+    # "tau_l_sink": [5e-11, 1e-10, 1.5e-10, 2e-10, 3e-10, 5e-10, 8e-10],
+    # "G_es0": [1e14, 3e14, 1e15, 3e15, 1e16],
+    # "G_el0": [1e13, 3e13, 1e14, 3e14, 5e14],
 }
 
 # =========================
@@ -159,11 +164,12 @@ def make_initial_params() -> dict:
     p0["hot_init_mode"] = "avg_power"
     p0["rep_rate_Hz"] = 5.0e5
     p0["preheat_max_dT"] = 30.0
-    p0["S_scale"] = 0.0408
-    p0["A_obs"] = 0.0451
-    p0["B0_obs"] = 0.0232
-    p0["G_es0"] = 5.74e14
-    p0["G_el0"] = 5.0e13
+    p0["S_scale"]   = 0.0611
+    p0["A_obs"]     = 0.0425
+    p0["B0_obs"]    = 0.0232
+    p0["G_es0"]     = 5.65e14
+    p0["G_el0"]     = 3.0e14
+    p0["tau_l_sink"] = 1.5e-10
     p0["pulse_width"] = 1.5e-13
     p0["B1_obs"] = 0.0
 
@@ -366,7 +372,7 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
         datasets,
         p_mode,
         global_keys=ROUND1_GLOBAL_KEYS,
-        local_keys=[],
+        local_keys=["dt_local"],
         observable_mode=observable_mode,
         sigma_S=SIGMA_S,
         max_nfev=max_nfev,

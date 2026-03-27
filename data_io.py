@@ -73,7 +73,7 @@ POSITIVE_FIT_KEYS = {
 }
 
 LOCAL_KEY_BOUNDS = {
-    "dt_local": (-0.3e-12, 0.3e-12),
+    "dt_local": (-1e-12, 1e-12),
     "A_obs": (1e-5, 2e-2),
     "B_obs": (0.0, 1e-2),
 }
