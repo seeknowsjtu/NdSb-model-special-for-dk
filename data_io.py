@@ -84,6 +84,27 @@ VARPRO_READOUT_BOUNDS = {
 }
 
 USE_VARPRO_READOUT = True
+NEG_DELAY_WEIGHT_ENABLE = True
+NEG_DELAY_THRESHOLD_PS = -1.0
+NEG_DELAY_WEIGHT = 0.35
+
+
+def _build_time_weights_from_t(t_sec):
+    """
+    Return pointwise weights for residual/readout.
+    Default:
+      - t < NEG_DELAY_THRESHOLD_PS ps  -> NEG_DELAY_WEIGHT
+      - else                           -> 1.0
+    """
+    t_sec = np.asarray(t_sec, dtype=float)
+    weights = np.ones_like(t_sec, dtype=float)
+    if not NEG_DELAY_WEIGHT_ENABLE:
+        return weights
+
+    threshold_sec = NEG_DELAY_THRESHOLD_PS * 1e-12
+    mask = t_sec < threshold_sec
+    weights[mask] = float(NEG_DELAY_WEIGHT)
+    return np.clip(weights, 0.0, np.inf)
 
 
 # ============================================================
@@ -899,6 +920,7 @@ def fit_params_multi(
         p_dataset.update(p_global)
         p_dataset["fluence_ratio"] = float(dataset["fluence_ratio"])
         p_dataset["t"] = np.asarray(dataset["t"], dtype=float)
+        point_weights = _build_time_weights_from_t(dataset["t"])
 
         if use_varpro:
             template_info = build_observable_template_only(
@@ -910,7 +932,7 @@ def fit_params_multi(
                 F_ref=1.0,
             )
             y_obs = np.asarray(dataset["S"], dtype=float)
-            weights = np.full_like(y_obs, 1.0 / (sigma_S ** 2), dtype=float)
+            weights = (point_weights / (sigma_S ** 2)).astype(float, copy=False)
             lin = solve_linear_readout_ab(
                 y_obs,
                 template_info["template_u"],
@@ -939,7 +961,7 @@ def fit_params_multi(
             dt_i_ps = float(dt_local * 1e12)
             sigma_irf_ps = float(p_global.get("sigma_irf_ps", np.nan))
 
-        residual = (S_fit - dataset["S"]) / sigma_S
+        residual = ((S_fit - dataset["S"]) / sigma_S) * np.sqrt(point_weights)
 
         wall_time_sec = max(perf_counter() - eval_start, 0.0) if enable_timing and eval_start is not None else 0.0
         stats = dataset_timing_stats[dataset["name"]]
@@ -964,6 +986,7 @@ def fit_params_multi(
             "phi_fit": np.asarray(sim["phi"], dtype=float),
             "chi2q_fit": np.asarray(_compute_chi2q(sim), dtype=float),
             "residual": np.asarray(residual, dtype=float),
+            "point_weights": np.asarray(point_weights, dtype=float),
             "sim": sim,
             "local_params": p_local,
             "params": p_dataset,
