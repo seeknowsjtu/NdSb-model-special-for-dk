@@ -235,6 +235,7 @@ MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
     "S_scale",
     "G_es0",
     "G_el0",
+    "G_sl0",
     "tau_l_sink",
     "tau_s_sink",
     "dt0_ps",
