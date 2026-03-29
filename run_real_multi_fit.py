@@ -28,6 +28,7 @@ from data_io import (
     export_multi_fit_results,
     _get_bounds_for_keys,
     build_observable,
+    _build_time_weights_from_t,
     load_s_dataset_csv_raw,
 )
 from physics_engine import DebyeCl
@@ -218,7 +219,8 @@ def evaluate_fixed_model(
         S_fit = build_observable(sim, p_work, {}, observable_mode)
 
         S_obs = np.asarray(dataset["S"], dtype=float)
-        residual = (S_fit - S_obs) / sigma_S
+        point_weights = _build_time_weights_from_t(dataset["t"])
+        residual = ((S_fit - S_obs) / sigma_S) * np.sqrt(point_weights)
         rms = float(np.sqrt(np.mean((S_fit - S_obs) ** 2)))
         wrms = float(np.sqrt(np.mean(residual ** 2)))
 
