@@ -23,7 +23,10 @@ def _make_dataset(base_params: dict, fluence_ratio: float, mode: str, noise: flo
     params = dict(base_params)
     params["fluence_multiplier"] = float(fluence_ratio)
     tmpl = build_delta_k_template_only(params, {"t": t, "fluence_ratio": fluence_ratio}, mode, debye_obj=DebyeCl(thetaD=float(params["ThetaD"])))
-    y_clean = np.clip(float(params["K_dk"]) * np.asarray(tmpl["template_u"], dtype=float), 0.0, np.inf)
+    y_clean = float(params["K_dk"]) * np.asarray(tmpl["template_u"], dtype=float)
+    if mode == "dk_affine_m_chi2q":
+        y_clean = y_clean + float(params.get("B_dk", 0.0))
+    y_clean = np.clip(y_clean, 0.0, np.inf)
 
     rng = np.random.default_rng(seed)
     y_obs = y_clean + rng.normal(0.0, noise, size=t.shape)
@@ -44,10 +47,13 @@ def _make_dataset(base_params: dict, fluence_ratio: float, mode: str, noise: flo
 
 
 def _run_mode(mode: str, datasets: list[dict], p0: dict) -> None:
+    global_keys = ["S_scale", "G_es0", "G_el0", "G_sl0", "dt0_ps", "sigma_irf_ps", "K_dk"]
+    if mode == "dk_affine_m_chi2q":
+        global_keys.append("B_dk")
     fit_bundle, res = fit_params_multi_dk(
         datasets,
         p0,
-        global_keys=["S_scale", "G_es0", "G_el0", "G_sl0", "dt0_ps", "sigma_irf_ps", "K_dk"],
+        global_keys=global_keys,
         local_keys=[],
         observable_mode=mode,
         sigma_dk=float(p0.get("sigma_dk", 0.002)),
@@ -62,6 +68,7 @@ def _run_mode(mode: str, datasets: list[dict], p0: dict) -> None:
 
     print(f"mode={mode} success={res.success} status={res.status} cost={res.cost:.6e} nfev={res.nfev}")
     print(f"  K_dk={fit_bundle['best_global_params'].get('K_dk', float('nan')):.6g}")
+    print(f"  B_dk={fit_bundle['best_global_params'].get('B_dk', float('nan')):.6g}")
     for row in fit_bundle["dataset_summary"]:
         print(
             f"  dataset={row['dataset_name']} wrms={row['wrms']:.4e} "
@@ -86,6 +93,7 @@ def main() -> None:
     p_true = normalize_params_dict(default_params())
     p_true["eta_representation"] = "cos2phi"
     p_true["K_dk"] = 0.028
+    p_true["B_dk"] = 0.0
     p_true["dk_resolution_limit"] = 0.003
     p_true["sigma_dk"] = 0.002
     p_true["sigma_dk_censored"] = 0.002
@@ -103,6 +111,17 @@ def main() -> None:
 
     _run_mode("dk_chi2q", datasets, p0)
     _run_mode("dk_m_chi2q", datasets, p0)
+
+    p_true_affine = dict(p_true)
+    p_true_affine["B_dk"] = 0.002
+    datasets_affine = [
+        _make_dataset(p_true_affine, fluence_ratio=1.0, mode="dk_affine_m_chi2q", noise=0.0010, seed=11),
+        _make_dataset(p_true_affine, fluence_ratio=2.5, mode="dk_affine_m_chi2q", noise=0.0012, seed=12),
+        _make_dataset(p_true_affine, fluence_ratio=4.0, mode="dk_affine_m_chi2q", noise=0.0014, seed=13),
+    ]
+    p0_affine = dict(p0)
+    p0_affine["B_dk"] = 0.001
+    _run_mode("dk_affine_m_chi2q", datasets_affine, p0_affine)
 
 
 if __name__ == "__main__":
