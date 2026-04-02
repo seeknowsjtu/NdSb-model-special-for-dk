@@ -44,9 +44,9 @@ CSV_FILES = [
     "deltak12k_1p0mW.csv",
     "deltak12k_2p0mW.csv",
     "deltak12k_2p5mW.csv",
-    "deltak12k_3p0mW.csv",
-    "deltak12k_3p5mW.csv",
-    "deltak12k_4p0mW.csv",
+    # "deltak12k_3p0mW.csv",
+    # "deltak12k_3p5mW.csv",
+    # "deltak12k_4p0mW.csv",
 ]
 
 DATA_DIR = Path(".")
@@ -62,7 +62,7 @@ SCAN_EXPORT_ROOT = "fit_results/scan_runs"
 HEARTBEAT_SEC = 10
 
 SMOKE_TEST = True              # 扫描时建议显式关掉
-STOP_AFTER_SMOKE = False       # True: smoke 后退出；False: smoke 后继续 full fit
+STOP_AFTER_SMOKE = True       # True: smoke 后退出；False: smoke 后继续 full fit
 SMOKE_MAX_NFEV = 80             # 扫描模式下基本不会用到
 FULL_MAX_NFEV = 150             # 扫描模式下基本不会用到
 

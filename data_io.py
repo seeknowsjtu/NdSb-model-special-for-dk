@@ -76,17 +76,17 @@ POSITIVE_FIT_KEYS = {
 
 LOCAL_KEY_BOUNDS = {
     "dt_local": (-1e-12, 1e-12),
-    "A_obs": (1e-4, 1.5e-1),
-    "B_obs": (-2e-2, 8e-2),
+    "A_obs": (1e-4, 8e-1),
+    "B_obs": (-2e-1, 8e-2),
 }
 
 VARPRO_READOUT_BOUNDS = {
-    "A_obs": (1e-4, 1.5e-1),
-    "B_obs": (-2e-2, 8e-2),
+    "A_obs": (1e-4, 8e-1),
+    "B_obs": (-2e-1, 8e-2),
 }
 
 USE_VARPRO_READOUT = True
-NEG_DELAY_WEIGHT_ENABLE = True
+NEG_DELAY_WEIGHT_ENABLE = False
 NEG_DELAY_THRESHOLD_PS = -1.0
 NEG_DELAY_WEIGHT = 0.35
 
@@ -392,9 +392,9 @@ def _get_bounds_for_keys(keys):
 
     for k in keys:
         if k in ["G_el", "G_el0"]:
-            lb.append(1e13); ub.append(5e14)
+            lb.append(1e13); ub.append(2e15)
         elif k in ["G_es", "G_es0"]:
-            lb.append(1e14); ub.append(2e15)
+            lb.append(1e14); ub.append(2e16)
         elif k in ["G_sl", "G_sl0"]:
             lb.append(1e12); ub.append(5e16)
         elif k == "G_el_Tpow":
@@ -430,7 +430,7 @@ def _get_bounds_for_keys(keys):
         elif k == "t0_pulse":
             lb.append(-2e-12); ub.append(2e-12)
         elif k == "dt0_ps":
-            lb.append(-1.0); ub.append(1.0)
+            lb.append(-1.0); ub.append(0.5)
         elif k == "sigma_irf_ps":
             lb.append(0.02); ub.append(1.0)
         elif k == "alpha_dt_per_F":
