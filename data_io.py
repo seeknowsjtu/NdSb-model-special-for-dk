@@ -28,6 +28,7 @@ from config import (
     MULTI_FIT_DEFAULT_GLOBAL_KEYS,
     MULTI_FIT_DEFAULT_LOCAL_KEYS,
     MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
+    default_params,
     normalize_params_dict,
 )
 from physics_engine import DebyeCl
@@ -263,13 +264,13 @@ def load_s_dataset_csv_raw(path: str | Path) -> dict:
     }
 
 
-def load_dk_dataset_csv(path: str | Path) -> dict:
+def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None) -> dict:
     """Load a delta-k dataset CSV without S baseline subtraction."""
-    t, Te, Ts, Tl, _, names, _ = load_csv_auto(str(path))
     arr = np.genfromtxt(str(path), delimiter=",", names=True, encoding="utf-8-sig")
     if arr is None or arr.dtype.names is None:
         raise ValueError(f"{Path(path).name} must have a header row.")
 
+    names = list(arr.dtype.names)
     lowered = [n.strip().lower() for n in names]
     lowered_set = set(lowered)
 
@@ -294,16 +295,39 @@ def load_dk_dataset_csv(path: str | Path) -> dict:
     t_col = _find_col(["tps", "t_ps", "time_ps", "t(ps)", "time(ps)", "time", "t"])
     if t_col is None:
         raise ValueError(f"{Path(path).name} has no recognizable time column.")
+
+    te_col = _find_col(["tek", "te_k", "te", "te(k)", "temp_e", "electron_temp"])
+    ts_col = _find_col(["tsk", "ts_k", "ts", "ts(k)", "temp_s", "spin_temp", "tspin"])
+    tl_col = _find_col(["tlk", "tl_k", "tl", "tl(k)", "temp_l", "lattice_temp"])
+
     t_raw = np.asarray(arr[t_col], dtype=float)
     t_sec = t_raw * 1e-12 if np.nanmax(np.abs(t_raw)) > 1e-6 else t_raw
     delta_raw = np.asarray(arr[dk_col], dtype=float)
+
+    Te_raw = np.asarray(arr[te_col], dtype=float) if te_col is not None else None
+    Ts_raw = np.asarray(arr[ts_col], dtype=float) if ts_col is not None else None
+    Tl_raw = np.asarray(arr[tl_col], dtype=float) if tl_col is not None else None
+
     mask = np.isfinite(t_sec) & np.isfinite(delta_raw)
+    if Te_raw is not None:
+        mask &= np.isfinite(Te_raw)
+    if Ts_raw is not None:
+        mask &= np.isfinite(Ts_raw)
+    if Tl_raw is not None:
+        mask &= np.isfinite(Tl_raw)
+
     t_sec = t_sec[mask]
     delta_raw = delta_raw[mask]
+    Te_raw = Te_raw[mask] if Te_raw is not None else None
+    Ts_raw = Ts_raw[mask] if Ts_raw is not None else None
+    Tl_raw = Tl_raw[mask] if Tl_raw is not None else None
 
     idx = np.argsort(t_sec)
     t_sorted = t_sec[idx]
     delta_sorted = delta_raw[idx]
+    Te_sorted = Te_raw[idx] if Te_raw is not None else None
+    Ts_sorted = Ts_raw[idx] if Ts_raw is not None else None
+    Tl_sorted = Tl_raw[idx] if Tl_raw is not None else None
 
     if resolved_col is not None:
         raw = np.asarray(arr[resolved_col])[mask][idx]
@@ -315,29 +339,44 @@ def load_dk_dataset_csv(path: str | Path) -> dict:
                 dtype=bool,
             )
     else:
-        resolved_sorted = np.isfinite(delta_sorted) & (delta_sorted > 0.003)
+        if resolution_limit is None:
+            resolution_limit = float(
+                normalize_params_dict(default_params()).get("dk_resolution_limit", 0.003)
+            )
+        resolved_sorted = np.isfinite(delta_sorted) & (delta_sorted > float(resolution_limit))
 
     t_u, inv = np.unique(t_sorted, return_inverse=True)
     delta_u = np.zeros_like(t_u, dtype=float)
     cnt = np.zeros_like(t_u, dtype=float)
     resolved_u = np.zeros_like(t_u, dtype=bool)
+    Te_u = np.zeros_like(t_u, dtype=float) if Te_sorted is not None else None
+    Ts_u = np.zeros_like(t_u, dtype=float) if Ts_sorted is not None else None
+    Tl_u = np.zeros_like(t_u, dtype=float) if Tl_sorted is not None else None
     for i, g in enumerate(inv):
         delta_u[g] += delta_sorted[i]
         cnt[g] += 1.0
         resolved_u[g] = bool(resolved_u[g] or resolved_sorted[i])
+        if Te_u is not None:
+            Te_u[g] += Te_sorted[i]
+        if Ts_u is not None:
+            Ts_u[g] += Ts_sorted[i]
+        if Tl_u is not None:
+            Tl_u[g] += Tl_sorted[i]
     delta_u = delta_u / np.maximum(cnt, 1.0)
+    if Te_u is not None:
+        Te_u = Te_u / np.maximum(cnt, 1.0)
+    if Ts_u is not None:
+        Ts_u = Ts_u / np.maximum(cnt, 1.0)
+    if Tl_u is not None:
+        Tl_u = Tl_u / np.maximum(cnt, 1.0)
 
-    if t.shape != delta_u.shape:
-        raise ValueError(
-            f"{Path(path).name}: delta_k points do not align with parsed time grid ({delta_u.shape} vs {t.shape})."
-        )
     return {
         "name": Path(path).name,
         "path": str(path),
-        "t": t,
-        "Te": Te,
-        "Ts": Ts,
-        "Tl": Tl,
+        "t": t_u,
+        "Te": np.asarray(Te_u, dtype=float) if Te_u is not None else None,
+        "Ts": np.asarray(Ts_u, dtype=float) if Ts_u is not None else None,
+        "Tl": np.asarray(Tl_u, dtype=float) if Tl_u is not None else None,
         "delta_k": np.asarray(delta_u, dtype=float),
         "S": np.asarray(delta_u, dtype=float),
         "is_resolved": np.asarray(resolved_u, dtype=bool),
