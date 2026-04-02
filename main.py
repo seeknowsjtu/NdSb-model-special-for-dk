@@ -30,7 +30,9 @@ from data_io import (
     export_multi_fit_results,
     fit_params,
     fit_params_multi,
+    fit_params_multi_dk,
     load_csv_auto,
+    load_dk_dataset_csv,
     load_s_dataset_csv,
     normalize_fit_keys,
     preprocess_signal_baseline,
@@ -98,9 +100,17 @@ FIT_PRESETS = {
 
 
 MULTI_FIT_PRESET = {
+    "target_kind": "S",
     "global_keys": list(MULTI_FIT_DEFAULT_GLOBAL_KEYS),
     "local_keys": list(MULTI_FIT_DEFAULT_LOCAL_KEYS),
     "observable_mode": MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
+}
+
+MULTI_FIT_DK_PRESET = {
+    "target_kind": "delta_k",
+    "global_keys": [k for k in MULTI_FIT_DEFAULT_GLOBAL_KEYS if k not in {"A_obs", "B_obs"}] + ["K_dk"],
+    "local_keys": [],
+    "observable_mode": "dk_chi2q",
 }
 
 
@@ -259,6 +269,8 @@ if GUI_AVAILABLE:
             ttk.Button(btnfrm, text="Show Fit (p_fit)", command=self.on_show_pfit).grid(row=1, column=1, padx=3, pady=2, sticky="ew")
             ttk.Button(btnfrm, text="Fit Multi-S", command=self.on_fit_multi_s).grid(row=1, column=2, padx=3, pady=2, sticky="ew")
             ttk.Button(btnfrm, text="Export Multi-Fit", command=self.on_export_multi_fit).grid(row=1, column=3, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Load delta-k CSVs...", command=self.on_load_dk_csvs).grid(row=2, column=2, padx=3, pady=2, sticky="ew")
+            ttk.Button(btnfrm, text="Fit Multi-delta-k", command=self.on_fit_multi_dk).grid(row=2, column=3, padx=3, pady=2, sticky="ew")
 
             fitfrm = ttk.Frame(left)
             fitfrm.grid(row=4, column=0, sticky="ew", pady=6)
@@ -508,14 +520,25 @@ if GUI_AVAILABLE:
             self.axT.grid(alpha=0.3)
             self.axT.legend(loc="best", fontsize=8)
 
+            target_kind = str(fit_bundle.get("target_kind", "S"))
             self.axM.clear()
             for item in dataset_fits:
                 label = f"{item['name']} | {item['fluence_ratio']:.1f}"
-                self.axM.scatter(item["t"] * 1e12, item["S_exp"], s=12, alpha=0.45, label=f"exp {label}")
-                self.axM.plot(item["t"] * 1e12, item["S_fit"], linewidth=1.6, label=f"fit {label}")
-            self.axM.set_title(f"Multi-S global fit ({fit_bundle['observable_mode']})")
+                t_ps = item["t"] * 1e12
+                if target_kind == "delta_k":
+                    y_exp = np.asarray(item["delta_k_exp"], dtype=float)
+                    y_fit = np.asarray(item["delta_k_fit"], dtype=float)
+                    resolved = np.asarray(item.get("is_resolved", np.ones_like(y_exp, dtype=bool)), dtype=bool)
+                    self.axM.scatter(t_ps[resolved], y_exp[resolved], s=12, alpha=0.55, label=f"exp(resolved) {label}")
+                    if np.any(~resolved):
+                        self.axM.scatter(t_ps[~resolved], y_exp[~resolved], s=12, alpha=0.25, marker="x", label=f"exp(unresolved) {label}")
+                    self.axM.plot(t_ps, y_fit, linewidth=1.6, label=f"fit {label}")
+                else:
+                    self.axM.scatter(t_ps, item["S_exp"], s=12, alpha=0.45, label=f"exp {label}")
+                    self.axM.plot(t_ps, item["S_fit"], linewidth=1.6, label=f"fit {label}")
+            self.axM.set_title(f"Multi-{target_kind} global fit ({fit_bundle['observable_mode']})")
             self.axM.set_xlabel("time (ps)")
-            self.axM.set_ylabel("S")
+            self.axM.set_ylabel("delta_k" if target_kind == "delta_k" else "S")
             self.axM.grid(alpha=0.3)
             self.axM.legend(loc="best", fontsize=7, ncol=2)
 
@@ -687,6 +710,44 @@ if GUI_AVAILABLE:
                 f"[multi-load] added={len(loaded)} | replaced={replaced} | total datasets={len(self.datasets)}"
             )
 
+        def on_load_dk_csvs(self):
+            paths = filedialog.askopenfilenames(
+                title="Choose delta-k CSV files",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            if not paths:
+                return
+
+            loaded = []
+            try:
+                for path in paths:
+                    dataset = load_dk_dataset_csv(path)
+                    loaded.append(dataset)
+                    n_resolved = int(np.count_nonzero(np.asarray(dataset["is_resolved"], dtype=bool)))
+                    self._log(
+                        f"[multi-load-dk] name={dataset['name']} | N={len(dataset['t'])} | "
+                        f"fluence_ratio={dataset['fluence_ratio']:.3f} | "
+                        f"resolved={n_resolved} | unresolved={len(dataset['t']) - n_resolved}"
+                    )
+            except Exception as e:
+                messagebox.showerror("Load delta-k CSVs failed", str(e))
+                self._log(f"[error] {e}")
+                return
+
+            existing_by_path = {item.get("path"): item for item in self.datasets if item.get("path")}
+            unnamed_existing = [item for item in self.datasets if not item.get("path")]
+            replaced = 0
+            for dataset in loaded:
+                dataset_path = dataset.get("path")
+                if dataset_path in existing_by_path:
+                    replaced += 1
+                existing_by_path[dataset_path] = dataset
+
+            self.datasets = unnamed_existing + list(existing_by_path.values())
+            self._log(
+                f"[multi-load-dk] added={len(loaded)} | replaced={replaced} | total datasets={len(self.datasets)}"
+            )
+
         def on_clear_datasets(self):
             self.datasets = []
             self.multi_fit_params = None
@@ -746,6 +807,56 @@ if GUI_AVAILABLE:
                     )
             except Exception as e:
                 messagebox.showerror("Multi-fit error", str(e))
+                self._log(f"[error] {e}")
+
+        def on_fit_multi_dk(self):
+            if not self.datasets:
+                messagebox.showwarning("No datasets", "Please load delta-k CSV files first.")
+                return
+
+            self._read_entries_to_params()
+            p_start = normalize_params_dict(self._current_params_dict())
+            preset = dict(MULTI_FIT_DK_PRESET)
+
+            try:
+                self._log(
+                    f"[multi-fit-dk] target_kind=delta_k | observable={preset['observable_mode']} | "
+                    f"global_keys={preset['global_keys']} | local_keys={preset['local_keys']}"
+                )
+                fit_bundle, res = fit_params_multi_dk(
+                    self.datasets,
+                    p_start,
+                    global_keys=preset["global_keys"],
+                    local_keys=preset["local_keys"],
+                    observable_mode=preset["observable_mode"],
+                    sigma_dk=float(p_start.get("sigma_dk", 0.002)),
+                    sigma_dk_censored=float(p_start.get("sigma_dk_censored", 0.002)),
+                    dk_resolution_limit=float(p_start.get("dk_resolution_limit", 0.003)),
+                    progress_every=5,
+                    progress_callback=self._log,
+                    optimizer_verbose=0,
+                    enable_timing=True,
+                )
+                self.multi_fit_params = fit_bundle
+                self.multi_fit_res = res
+                self.p_fit = dict(fit_bundle["best_global_params"])
+                self.fit_res = res
+                self._refresh_entries_from_params(self.p_fit, view="p_fit")
+                self._plot_multi_fit_preview(fit_bundle)
+
+                self._log(
+                    f"[multi-fit-dk] success={res.success} | cost={res.cost:.3e} | nfev={res.nfev} | status={res.status}"
+                )
+                self._log(f"    [global] K_dk = {fmt_num(fit_bundle['best_global_params'].get('K_dk', np.nan))}")
+                if "B_dk" in fit_bundle["best_global_params"]:
+                    self._log(f"    [global] B_dk = {fmt_num(fit_bundle['best_global_params'].get('B_dk', np.nan))}")
+                for row in fit_bundle["dataset_summary"]:
+                    self._log(
+                        f"    [dk] {row['dataset_name']} | rms={row['rms']:.4g} | wrms={row['wrms']:.4g} | "
+                        f"resolved={int(row.get('n_resolved', 0))} | unresolved={int(row.get('n_unresolved', 0))}"
+                    )
+            except Exception as e:
+                messagebox.showerror("Multi-fit delta-k error", str(e))
                 self._log(f"[error] {e}")
 
         def on_export_multi_fit(self):

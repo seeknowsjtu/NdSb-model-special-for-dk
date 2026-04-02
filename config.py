@@ -108,6 +108,7 @@ def default_params() -> dict:
     p["pulse_width"] = 120e-15
     p["t0_pulse"] = 0.0
     p["S_scale"] = 5e-4
+    p["target_kind"] = "S"  # "S" or "delta_k"
     p["dt0_ps"] = 0.0
     p["sigma_irf_ps"] = 0.20
     p["alpha_dt_per_F"] = 0.0
@@ -115,6 +116,14 @@ def default_params() -> dict:
     p["B_obs"] = 0.02
     p["B0_obs"] = 0.02
     p["B1_obs"] = 0.0
+    p["dk_mode"] = "dk_chi2q"
+    p["K_dk"] = 0.02
+    p["B_dk"] = 0.0
+    p["sigma_dk"] = 0.002
+    p["sigma_dk_censored"] = 0.002
+    p["dk_resolution_limit"] = 0.003
+    p["USE_DK_CENSORED_LOSS"] = 1
+    p["USE_DK_AFFINE_OFFSET"] = 0
 
     # ========================================================
     # Effective transfer channels (W/m^3/K)
@@ -245,6 +254,10 @@ MULTI_FIT_DEFAULT_GLOBAL_KEYS = [
 MULTI_FIT_OPTIONAL_GLOBAL_KEYS = ["alpha_dt_per_F"]
 MULTI_FIT_DEFAULT_LOCAL_KEYS = []
 MULTI_FIT_DEFAULT_OBSERVABLE_MODE = "raw_m_chi2q"
+MULTI_FIT_DEFAULT_TARGET_KIND = "S"
+MULTI_FIT_DEFAULT_S_OBSERVABLE_MODE = "raw_m_chi2q"
+MULTI_FIT_DEFAULT_DK_OBSERVABLE_MODE = "dk_chi2q"
+MULTI_FIT_DEFAULT_DK_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS) + ["K_dk"]
 
 def clipT(T: float, Tmin: float = 1e-6, Tmax: float = 8e4) -> float:
     return float(np.clip(float(T), Tmin, Tmax))
