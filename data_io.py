@@ -69,6 +69,7 @@ POSITIVE_FIT_KEYS = {
     # ARPES mapping positive params
     "S_amp", "S_power",
     "A_obs",
+    "K_dk",
 
 }
 
@@ -262,6 +263,88 @@ def load_s_dataset_csv_raw(path: str | Path) -> dict:
     }
 
 
+def load_dk_dataset_csv(path: str | Path) -> dict:
+    """Load a delta-k dataset CSV without S baseline subtraction."""
+    t, Te, Ts, Tl, _, names, _ = load_csv_auto(str(path))
+    arr = np.genfromtxt(str(path), delimiter=",", names=True, encoding="utf-8-sig")
+    if arr is None or arr.dtype.names is None:
+        raise ValueError(f"{Path(path).name} must have a header row.")
+
+    lowered = [n.strip().lower() for n in names]
+    lowered_set = set(lowered)
+
+    def _find_col(candidates):
+        for key in candidates:
+            if key in lowered_set:
+                return names[lowered.index(key)]
+        return None
+
+    dk_col = _find_col([
+        "delta_k", "deltak", "dk", "delta_k_ainv", "deltak_ainv",
+        "k_split", "ksplit", "split_k",
+    ])
+    if dk_col is None:
+        raise ValueError(
+            f"{Path(path).name} is missing delta-k column. "
+            "Expected one of: delta_k, deltak, dk, delta_k_Ainv, deltak_Ainv, "
+            "k_split, ksplit, split_k."
+        )
+    resolved_col = _find_col(["resolved", "is_resolved", "dk_resolved", "split_resolved"])
+
+    t_col = _find_col(["tps", "t_ps", "time_ps", "t(ps)", "time(ps)", "time", "t"])
+    if t_col is None:
+        raise ValueError(f"{Path(path).name} has no recognizable time column.")
+    t_raw = np.asarray(arr[t_col], dtype=float)
+    t_sec = t_raw * 1e-12 if np.nanmax(np.abs(t_raw)) > 1e-6 else t_raw
+    delta_raw = np.asarray(arr[dk_col], dtype=float)
+    mask = np.isfinite(t_sec) & np.isfinite(delta_raw)
+    t_sec = t_sec[mask]
+    delta_raw = delta_raw[mask]
+
+    idx = np.argsort(t_sec)
+    t_sorted = t_sec[idx]
+    delta_sorted = delta_raw[idx]
+
+    if resolved_col is not None:
+        raw = np.asarray(arr[resolved_col])[mask][idx]
+        if np.issubdtype(raw.dtype, np.number):
+            resolved_sorted = np.asarray(raw, dtype=float) > 0.5
+        else:
+            resolved_sorted = np.array(
+                [str(v).strip().lower() in {"1", "true", "t", "yes", "y"} for v in raw],
+                dtype=bool,
+            )
+    else:
+        resolved_sorted = np.isfinite(delta_sorted) & (delta_sorted > 0.003)
+
+    t_u, inv = np.unique(t_sorted, return_inverse=True)
+    delta_u = np.zeros_like(t_u, dtype=float)
+    cnt = np.zeros_like(t_u, dtype=float)
+    resolved_u = np.zeros_like(t_u, dtype=bool)
+    for i, g in enumerate(inv):
+        delta_u[g] += delta_sorted[i]
+        cnt[g] += 1.0
+        resolved_u[g] = bool(resolved_u[g] or resolved_sorted[i])
+    delta_u = delta_u / np.maximum(cnt, 1.0)
+
+    if t.shape != delta_u.shape:
+        raise ValueError(
+            f"{Path(path).name}: delta_k points do not align with parsed time grid ({delta_u.shape} vs {t.shape})."
+        )
+    return {
+        "name": Path(path).name,
+        "path": str(path),
+        "t": t,
+        "Te": Te,
+        "Ts": Ts,
+        "Tl": Tl,
+        "delta_k": np.asarray(delta_u, dtype=float),
+        "S": np.asarray(delta_u, dtype=float),
+        "is_resolved": np.asarray(resolved_u, dtype=bool),
+        "fluence_ratio": parse_fluence_ratio_from_name(str(path)),
+    }
+
+
 # ============================================================
 # Bounds helper
 # ============================================================
@@ -391,6 +474,10 @@ def _get_bounds_for_keys(keys):
             lb.append(0.0); ub.append(4e-2)
         elif k == "B1_obs":
             lb.append(-1e-2); ub.append(1e-2)
+        elif k == "K_dk":
+            lb.append(1e-6); ub.append(1.0)
+        elif k == "B_dk":
+            lb.append(-0.2); ub.append(0.2)
         else:
             lb.append(-np.inf); ub.append(np.inf)
 
@@ -592,6 +679,73 @@ def build_observable_template_only(
         "sim": sim,
         "t_model": t_model,
     }
+
+
+def build_delta_k_template_only(
+    p_global,
+    p_dataset,
+    observable_mode,
+    *,
+    debye_obj=None,
+    with_diag=False,
+    F_ref=1.0,
+):
+    """Build only the delta-k template from simulated states."""
+    mode = str(observable_mode).strip().lower()
+    if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+        raise ValueError(f"build_delta_k_template_only unsupported mode: {observable_mode}")
+
+    fluence_ratio = float(p_dataset.get("fluence_ratio", p_global.get("fluence_multiplier", 1.0)))
+    dt_i_ps = float(p_global.get("dt0_ps", 0.0))
+    if "alpha_dt_per_F" in p_global:
+        dt_i_ps += float(p_global.get("alpha_dt_per_F", 0.0)) * (fluence_ratio - float(F_ref))
+    sigma_irf_ps = float(p_global.get("sigma_irf_ps", 0.0))
+
+    t = np.asarray(p_dataset["t"], dtype=float)
+    t_model = t - dt_i_ps * 1e-12
+    p_run = dict(p_global)
+    p_run["fluence_multiplier"] = fluence_ratio
+    model = NdSb3TM(p_run, debye_obj=debye_obj)
+    sim = model.simulate_aligned(t_model, with_diag=with_diag)
+
+    chi2q = np.asarray(_compute_chi2q(sim), dtype=float)
+    if mode == "dk_chi2q":
+        u = chi2q
+    else:
+        u = np.asarray(sim["m"], dtype=float) * chi2q
+
+    template_u = _convolve_with_irf(u, t * 1e12, sigma_irf_ps)
+    return {
+        "template_u": template_u,
+        "dt_i_ps": float(dt_i_ps),
+        "sigma_irf_ps": float(sigma_irf_ps),
+        "sim": sim,
+        "t_model": t_model,
+    }
+
+
+def build_delta_k_residual(y_obs, y_model, is_resolved, sigma_resolved, sigma_censored, resolution_limit):
+    """Build censored residuals for resolved/unresolved delta-k observations."""
+    y_obs = np.asarray(y_obs, dtype=float)
+    y_model = np.asarray(y_model, dtype=float)
+    is_resolved = np.asarray(is_resolved, dtype=bool)
+    if y_obs.shape != y_model.shape or y_obs.shape != is_resolved.shape:
+        raise ValueError(
+            "build_delta_k_residual shape mismatch: y_obs, y_model, is_resolved must match."
+        )
+    sigma_resolved = float(max(sigma_resolved, 1e-12))
+    sigma_censored = float(max(sigma_censored, 1e-12))
+    resolution_limit = float(resolution_limit)
+
+    r = np.zeros_like(y_obs, dtype=float)
+    resolved_mask = is_resolved
+    unresolved_mask = ~resolved_mask
+    r[resolved_mask] = (y_model[resolved_mask] - y_obs[resolved_mask]) / sigma_resolved
+    over = y_model[unresolved_mask] > resolution_limit
+    if np.any(over):
+        idx = np.where(unresolved_mask)[0][over]
+        r[idx] = (y_model[idx] - resolution_limit) / sigma_censored
+    return r
 
 
 def build_observable(sim, p_global, p_local, observable_mode):
@@ -1087,6 +1241,7 @@ def fit_params_multi(
     timing_summary = _build_timing_summary()
 
     fit_bundle = {
+        "target_kind": "S",
         "observable_mode": str(observable_mode),
         "use_varpro_readout": bool(use_varpro),
         "global_keys": list(global_keys),
@@ -1099,6 +1254,219 @@ def fit_params_multi(
         "timing_summary": timing_summary,
     }
     return fit_bundle, res
+
+
+def fit_params_multi_dk(
+    datasets,
+    p0,
+    global_keys=None,
+    local_keys=None,
+    observable_mode="dk_chi2q",
+    sigma_dk=None,
+    sigma_dk_censored=None,
+    dk_resolution_limit=None,
+    max_nfev=300,
+    progress_every=5,
+    progress_callback=None,
+    optimizer_verbose=0,
+    enable_timing=True,
+):
+    """Jointly fit multiple datasets using delta-k specific readout/loss."""
+    if not datasets:
+        raise ValueError("fit_params_multi_dk: datasets must be a non-empty list.")
+
+    mode = str(observable_mode).strip().lower()
+    if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+        raise ValueError(f"fit_params_multi_dk unsupported observable_mode: {observable_mode}")
+
+    p0 = normalize_params_dict(p0)
+    sigma_resolved = float(max(sigma_dk if sigma_dk is not None else p0.get("sigma_dk", 0.002), 1e-12))
+    sigma_censored = float(max(sigma_dk_censored if sigma_dk_censored is not None else p0.get("sigma_dk_censored", 0.002), 1e-12))
+    resolution_limit = float(dk_resolution_limit if dk_resolution_limit is not None else p0.get("dk_resolution_limit", 0.003))
+
+    if global_keys is None:
+        base = [k for k in MULTI_FIT_DEFAULT_GLOBAL_KEYS if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs"}]
+        global_keys = list(base) + (["K_dk"] if "K_dk" not in base else [])
+    if local_keys is None:
+        local_keys = []
+    if local_keys:
+        raise ValueError("fit_params_multi_dk currently supports only empty local_keys.")
+
+    global_keys = normalize_fit_keys(global_keys)
+    if "K_dk" not in global_keys:
+        global_keys = list(global_keys) + ["K_dk"]
+    if mode == "dk_affine_m_chi2q":
+        if "B_dk" not in global_keys:
+            global_keys = list(global_keys) + ["B_dk"]
+    elif "B_dk" in global_keys:
+        global_keys = [k for k in global_keys if k != "B_dk"]
+
+    debye_obj = DebyeCl(thetaD=float(p0["ThetaD"]))
+    validated = []
+    for i, dataset in enumerate(datasets):
+        name = dataset.get("name") or f"dataset_{i}"
+        t = np.asarray(dataset.get("t"), dtype=float)
+        y = np.asarray(dataset.get("delta_k", dataset.get("S")), dtype=float)
+        resolved = np.asarray(dataset.get("is_resolved", np.isfinite(y) & (y > resolution_limit)), dtype=bool)
+        if t.ndim != 1 or y.ndim != 1 or t.shape != y.shape:
+            raise ValueError(f"Dataset '{name}' must provide matching 1D t and delta_k arrays.")
+        if resolved.shape != y.shape:
+            raise ValueError(f"Dataset '{name}' has mismatched is_resolved shape: {resolved.shape} vs {y.shape}.")
+        fluence_ratio = dataset.get("fluence_ratio")
+        if fluence_ratio is None:
+            raise ValueError(f"Dataset '{name}' is missing required key 'fluence_ratio'.")
+        validated.append({
+            "name": str(name),
+            "path": dataset.get("path"),
+            "t": t,
+            "delta_k": y,
+            "is_resolved": resolved,
+            "Te": dataset.get("Te"),
+            "Ts": dataset.get("Ts"),
+            "Tl": dataset.get("Tl"),
+            "fluence_ratio": float(fluence_ratio),
+        })
+
+    lb, ub = _build_fit_bounds(global_keys, _get_bounds_for_keys)
+    x0 = _pack_params(p0, global_keys)
+    span = ub - lb
+    eps = np.full_like(x0, 1e-12, dtype=float)
+    finite = np.isfinite(lb) & np.isfinite(ub)
+    eps[finite] = np.minimum(1e-12, 0.1 * np.maximum(span[finite], 0.0))
+    x0 = np.minimum(np.maximum(x0, lb + eps), ub - eps)
+
+    residual_call_count = 0
+    fit_start_time = perf_counter()
+    progress_every = int(progress_every) if progress_every is not None else 0
+
+    def _emit_progress(message):
+        if progress_callback is None:
+            print(message, flush=True)
+        else:
+            progress_callback(message)
+
+    def _eval_dataset(p_global, dataset, with_diag=False):
+        p_dataset = dict(p0)
+        p_dataset.update(p_global)
+        p_dataset["fluence_ratio"] = float(dataset["fluence_ratio"])
+        p_dataset["t"] = np.asarray(dataset["t"], dtype=float)
+
+        tmpl = build_delta_k_template_only(
+            p_global,
+            p_dataset,
+            mode,
+            debye_obj=debye_obj,
+            with_diag=with_diag,
+            F_ref=1.0,
+        )
+        K_dk = float(p_global.get("K_dk", p0.get("K_dk", 0.02)))
+        B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if mode == "dk_affine_m_chi2q" else 0.0
+        y_model = K_dk * np.asarray(tmpl["template_u"], dtype=float)
+        if mode == "dk_affine_m_chi2q":
+            y_model = B_dk + y_model
+        y_model = np.clip(y_model, 0.0, np.inf)
+        residual = build_delta_k_residual(
+            dataset["delta_k"],
+            y_model,
+            dataset["is_resolved"],
+            sigma_resolved,
+            sigma_censored,
+            resolution_limit,
+        )
+        return {
+            "name": dataset["name"],
+            "path": dataset["path"],
+            "fluence_ratio": float(dataset["fluence_ratio"]),
+            "t": np.asarray(dataset["t"], dtype=float),
+            "t_model": np.asarray(tmpl["t_model"], dtype=float),
+            "delta_k_exp": np.asarray(dataset["delta_k"], dtype=float),
+            "delta_k_fit": np.asarray(y_model, dtype=float),
+            "is_resolved": np.asarray(dataset["is_resolved"], dtype=bool),
+            "Te_fit": np.asarray(tmpl["sim"]["Te"], dtype=float),
+            "Ts_fit": np.asarray(tmpl["sim"]["Ts"], dtype=float),
+            "Tl_fit": np.asarray(tmpl["sim"]["Tl"], dtype=float),
+            "m_fit": np.asarray(tmpl["sim"]["m"], dtype=float),
+            "eta_fit": np.asarray(tmpl["sim"]["eta"], dtype=float),
+            "phi_fit": np.asarray(tmpl["sim"]["phi"], dtype=float),
+            "chi2q_fit": np.asarray(_compute_chi2q(tmpl["sim"]), dtype=float),
+            "residual": np.asarray(residual, dtype=float),
+            "sim": tmpl["sim"],
+            "diag": tmpl["sim"].get("diag"),
+            "dt_i_ps": float(tmpl["dt_i_ps"]),
+            "sigma_irf_ps": float(tmpl["sigma_irf_ps"]),
+        }
+
+    def residual(x):
+        nonlocal residual_call_count
+        p_global = dict(p0)
+        _unpack_params(p_global, global_keys, x)
+        residual_call_count += 1
+        parts = [_eval_dataset(p_global, ds, with_diag=False)["residual"] for ds in validated]
+        if progress_every > 0 and residual_call_count % progress_every == 0:
+            elapsed = max(perf_counter() - fit_start_time, 0.0)
+            _emit_progress(
+                f"[multi-fit-dk] residual_call={residual_call_count} | elapsed={elapsed:.2f} s | datasets={len(validated)}"
+            )
+        return np.concatenate(parts)
+
+    res = least_squares(
+        residual,
+        x0,
+        bounds=(lb, ub),
+        method="trf",
+        loss="soft_l1",
+        f_scale=1.0,
+        max_nfev=int(max(max_nfev, 1)),
+        verbose=int(optimizer_verbose),
+    )
+
+    best_global_params = dict(p0)
+    _unpack_params(best_global_params, global_keys, res.x)
+    dataset_fits = []
+    dataset_summary = []
+    for ds in validated:
+        evaluated = _eval_dataset(best_global_params, ds, with_diag=True)
+        resolved_mask = np.asarray(evaluated["is_resolved"], dtype=bool)
+        if np.any(resolved_mask):
+            rms = float(np.sqrt(np.mean((evaluated["delta_k_fit"][resolved_mask] - evaluated["delta_k_exp"][resolved_mask]) ** 2)))
+        else:
+            rms = float("nan")
+        wrms = float(np.sqrt(np.mean(evaluated["residual"] ** 2)))
+        evaluated["rms"] = rms
+        evaluated["wrms"] = wrms
+        dataset_fits.append(evaluated)
+        dataset_summary.append({
+            "dataset_name": ds["name"],
+            "dataset": ds["name"],
+            "path": ds["path"],
+            "fluence_ratio": float(ds["fluence_ratio"]),
+            "n_points": int(evaluated["t"].size),
+            "n_resolved": int(np.count_nonzero(resolved_mask)),
+            "n_unresolved": int(evaluated["t"].size - np.count_nonzero(resolved_mask)),
+            "rms": rms,
+            "wrms": wrms,
+            "dt_i_ps": float(evaluated["dt_i_ps"]),
+            "sigma_irf_ps": float(evaluated["sigma_irf_ps"]),
+        })
+
+    elapsed_sec = max(perf_counter() - fit_start_time, 0.0)
+    timing_summary = {
+        "residual_call_count": int(residual_call_count),
+        "elapsed_sec": float(elapsed_sec),
+        "avg_residual_sec": float(elapsed_sec / residual_call_count) if residual_call_count > 0 else 0.0,
+    }
+    return {
+        "observable_mode": mode,
+        "target_kind": "delta_k",
+        "global_keys": list(global_keys),
+        "local_keys": [],
+        "best_global_params": best_global_params,
+        "best_local_params": {},
+        "dataset_fits": dataset_fits,
+        "dataset_summary": dataset_summary,
+        "timing_summary": timing_summary,
+        "use_varpro_readout": False,
+    }, res
 
 
 # ============================================================
@@ -1158,7 +1526,9 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
         "nfev": int(optimizer_result.nfev),
         "message": str(optimizer_result.message),
     }
+    target_kind = str(fit_bundle.get("target_kind", "S"))
     json_payload = {
+        "target_kind": target_kind,
         "observable_mode": fit_bundle["observable_mode"],
         "global_keys": list(fit_bundle["global_keys"]),
         "local_keys": list(fit_bundle["local_keys"]),
@@ -1171,9 +1541,22 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     json_path.write_text(json.dumps(json_payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     with summary_csv_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(
-            fh,
-            fieldnames=[
+        if target_kind == "delta_k":
+            fieldnames = [
+                "dataset",
+                "dataset_name",
+                "path",
+                "fluence_ratio",
+                "n_points",
+                "n_resolved",
+                "n_unresolved",
+                "rms",
+                "wrms",
+                "dt_i_ps",
+                "sigma_irf_ps",
+            ]
+        else:
+            fieldnames = [
                 "dataset",
                 "dataset_name",
                 "path",
@@ -1191,7 +1574,10 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                 "B1_obs",
                 "wall_time_sec",
                 "avg_wall_time_sec",
-            ],
+            ]
+        writer = csv.DictWriter(
+            fh,
+            fieldnames=fieldnames,
             extrasaction="ignore",
         )
         writer.writeheader()
@@ -1201,23 +1587,37 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
         for item in dataset_fits:
             dataset_token = _slugify_dataset_name(item["name"])
             curve_path = out_dir / f"fitcurve_{dataset_token}_{timestamp}.csv"
-            stacked = np.column_stack([
-                item["t"] * 1e12,
-                item["S_exp"],
-                item["S_fit"],
-                item["Te_fit"],
-                item["Ts_fit"],
-                item["Tl_fit"],
-                item["m_fit"],
-                item["eta_fit"],
-                item["chi2q_fit"],
-                item["residual"],
-            ])
+            if target_kind == "delta_k":
+                stacked = np.column_stack([
+                    item["t"] * 1e12,
+                    item["delta_k_exp"],
+                    item["delta_k_fit"],
+                    item["m_fit"],
+                    item["eta_fit"],
+                    item["chi2q_fit"],
+                    item["residual"],
+                    item["is_resolved"].astype(int),
+                ])
+                header = "t_ps,delta_k_exp,delta_k_fit,m_fit,eta_fit,chi2q_fit,residual,is_resolved"
+            else:
+                stacked = np.column_stack([
+                    item["t"] * 1e12,
+                    item["S_exp"],
+                    item["S_fit"],
+                    item["Te_fit"],
+                    item["Ts_fit"],
+                    item["Tl_fit"],
+                    item["m_fit"],
+                    item["eta_fit"],
+                    item["chi2q_fit"],
+                    item["residual"],
+                ])
+                header = "t_ps,S_exp,S_fit,Te_fit,Ts_fit,Tl_fit,m_fit,eta_fit,chi2q_fit,residual"
             np.savetxt(
                 curve_path,
                 stacked,
                 delimiter=",",
-                header="t_ps,S_exp,S_fit,Te_fit,Ts_fit,Tl_fit,m_fit,eta_fit,chi2q_fit,residual",
+                header=header,
                 comments="",
             )
             fitcurve_paths.append(str(curve_path))        
@@ -1225,10 +1625,14 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     fig, ax = plt.subplots(figsize=(10, 6))
     for item in dataset_fits:
         label = f"{item['name']} ({item['fluence_ratio']:.1f} mW)"
-        ax.scatter(item["t"] * 1e12, item["S_exp"], s=14, alpha=0.5, label=f"exp {label}")
-        ax.plot(item["t"] * 1e12, item["S_fit"], linewidth=1.8, label=f"fit {label}")
+        if target_kind == "delta_k":
+            ax.scatter(item["t"] * 1e12, item["delta_k_exp"], s=14, alpha=0.5, label=f"exp {label}")
+            ax.plot(item["t"] * 1e12, item["delta_k_fit"], linewidth=1.8, label=f"fit {label}")
+        else:
+            ax.scatter(item["t"] * 1e12, item["S_exp"], s=14, alpha=0.5, label=f"exp {label}")
+            ax.plot(item["t"] * 1e12, item["S_fit"], linewidth=1.8, label=f"fit {label}")
     ax.set_xlabel("time (ps)")
-    ax.set_ylabel("S")
+    ax.set_ylabel("delta_k" if target_kind == "delta_k" else "S")
     ax.set_title(f"Global fit overlay ({fit_bundle['observable_mode']})")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=7, ncol=2)
@@ -1247,10 +1651,14 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
 
     flu = [row["fluence_ratio"] for row in fit_bundle["dataset_summary"]]
     axes[1].plot(flu, [row.get("dt_i_ps", np.nan) for row in fit_bundle["dataset_summary"]], marker="o", label="dt_i_ps")
-    axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
-    if any(np.isfinite(float(row.get("B_obs", np.nan))) for row in fit_bundle["dataset_summary"]):
-        axes[1].plot(flu, [row.get("B_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="B_obs")
-    axes[1].plot(flu, [row["B_eff_obs"] for row in fit_bundle["dataset_summary"]], marker="^", label="B_eff_obs")
+    if target_kind == "delta_k":
+        axes[1].plot(flu, [row.get("n_resolved", np.nan) for row in fit_bundle["dataset_summary"]], marker="s", label="n_resolved")
+        axes[1].plot(flu, [row.get("n_unresolved", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="n_unresolved")
+    else:
+        axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
+        if any(np.isfinite(float(row.get("B_obs", np.nan))) for row in fit_bundle["dataset_summary"]):
+            axes[1].plot(flu, [row.get("B_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="B_obs")
+        axes[1].plot(flu, [row["B_eff_obs"] for row in fit_bundle["dataset_summary"]], marker="^", label="B_eff_obs")
     axes[1].set_xlabel("fluence ratio / mW label")
     axes[1].set_title("Per-dataset effective readout")
     axes[1].grid(alpha=0.3)

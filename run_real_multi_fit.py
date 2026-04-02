@@ -10,11 +10,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+TARGET_KIND = "S"  # "S" or "delta_k"
 EXPERIMENT_MODE = "raw_m_chi2q"
-# 可选:
-# "raw_eta"
-# "raw_chi2q"
-# "raw_m_chi2q"
+# S modes: "raw_eta", "raw_chi2q", "raw_m_chi2q"
+# delta-k modes: "dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"
 
 from config import (
     default_params,
@@ -24,11 +23,15 @@ from config import (
     MULTI_FIT_DEFAULT_OBSERVABLE_MODE,
 )
 from data_io import (
+    build_delta_k_residual,
+    build_delta_k_template_only,
     fit_params_multi,
+    fit_params_multi_dk,
     export_multi_fit_results,
     _get_bounds_for_keys,
     build_observable,
     _build_time_weights_from_t,
+    load_dk_dataset_csv,
     load_s_dataset_csv_raw,
 )
 from physics_engine import DebyeCl
@@ -65,6 +68,9 @@ FULL_MAX_NFEV = 150             # 扫描模式下基本不会用到
 
 # multi-fit 相关设置
 SIGMA_S = 0.02
+SIGMA_DK = 0.002
+SIGMA_DK_CENSORED = 0.002
+DK_RESOLUTION_LIMIT = 0.003
 PROGRESS_EVERY = 5
 OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
@@ -107,7 +113,11 @@ SCAN_SPECS = {
 # 3. 读入一个数据集
 # =========================
 def load_dataset(path: Path) -> dict:
-    return load_s_dataset_csv_raw(path)
+    if TARGET_KIND == "S":
+        return load_s_dataset_csv_raw(path)
+    if TARGET_KIND == "delta_k":
+        return load_dk_dataset_csv(path)
+    raise ValueError(f"Unsupported TARGET_KIND: {TARGET_KIND}")
 
 # =========================
 # 4. 打印数据摘要
@@ -125,27 +135,31 @@ def print_dataset_summary(datasets: list[dict]) -> None:
             f"baseline={ds.get('baseline_value', 0.0):.4e} "
             f"(n={ds.get('baseline_npts', 0)}, {ds.get('baseline_method', 'n/a')})"
         )
+        if TARGET_KIND == "delta_k":
+            n_resolved = int(np.count_nonzero(np.asarray(ds.get("is_resolved", []), dtype=bool)))
+            print(f"    resolved={n_resolved} | unresolved={n - n_resolved}")
     print(f"Total points across all datasets = {total_points}")
 
 
 def configure_mode(p0: dict) -> tuple[dict, str]:
     mode = EXPERIMENT_MODE.strip().lower()
     p = dict(p0)
-
-    if mode == "raw_eta":
-        p["eta_representation"] = "scalar"
-        observable_mode = "raw_eta"
-
-    elif mode == "raw_chi2q":
+    if TARGET_KIND == "S":
+        if mode == "raw_eta":
+            p["eta_representation"] = "scalar"
+            observable_mode = "raw_eta"
+        elif mode in {"raw_chi2q", "raw_m_chi2q"}:
+            p["eta_representation"] = "cos2phi"
+            observable_mode = mode
+        else:
+            raise ValueError(f"Unsupported S EXPERIMENT_MODE: {EXPERIMENT_MODE}")
+    elif TARGET_KIND == "delta_k":
+        if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+            raise ValueError(f"Unsupported delta_k EXPERIMENT_MODE: {EXPERIMENT_MODE}")
         p["eta_representation"] = "cos2phi"
-        observable_mode = "raw_chi2q"
-
-    elif mode == "raw_m_chi2q":
-        p["eta_representation"] = "cos2phi"
-        observable_mode = "raw_m_chi2q"
-
+        observable_mode = mode
     else:
-        raise ValueError(f"Unsupported EXPERIMENT_MODE: {EXPERIMENT_MODE}")
+        raise ValueError(f"Unsupported TARGET_KIND: {TARGET_KIND}")
 
     return p, observable_mode
 # =========================
@@ -179,6 +193,10 @@ def make_initial_params() -> dict:
     p0["pulse_width"] = 1.5e-13
     p0["B1_obs"] = 0.0
     p0["USE_VARPRO_READOUT"] = True
+    p0["target_kind"] = TARGET_KIND
+    p0["dk_mode"] = "dk_chi2q"
+    p0["K_dk"] = float(p0.get("K_dk", 0.02))
+    p0["B_dk"] = float(p0.get("B_dk", 0.0))
 
     return p0
 
@@ -214,14 +232,34 @@ def evaluate_fixed_model(
     for dataset in datasets:
         p_work = dict(p0)
         p_work["fluence_multiplier"] = float(dataset["fluence_ratio"])
-        model = NdSb3TM(p_work, debye_obj=debye_obj)
-        sim = model.simulate_aligned(np.asarray(dataset["t"], dtype=float), with_diag=False)
-        S_fit = build_observable(sim, p_work, {}, observable_mode)
-
-        S_obs = np.asarray(dataset["S"], dtype=float)
-        point_weights = _build_time_weights_from_t(dataset["t"])
-        residual = ((S_fit - S_obs) / sigma_S) * np.sqrt(point_weights)
-        rms = float(np.sqrt(np.mean((S_fit - S_obs) ** 2)))
+        if TARGET_KIND == "S":
+            model = NdSb3TM(p_work, debye_obj=debye_obj)
+            sim = model.simulate_aligned(np.asarray(dataset["t"], dtype=float), with_diag=False)
+            y_fit = build_observable(sim, p_work, {}, observable_mode)
+            y_obs = np.asarray(dataset["S"], dtype=float)
+            point_weights = _build_time_weights_from_t(dataset["t"])
+            residual = ((y_fit - y_obs) / sigma_S) * np.sqrt(point_weights)
+            rms = float(np.sqrt(np.mean((y_fit - y_obs) ** 2)))
+        else:
+            p_work["sigma_dk"] = SIGMA_DK
+            p_work["sigma_dk_censored"] = SIGMA_DK_CENSORED
+            p_work["dk_resolution_limit"] = DK_RESOLUTION_LIMIT
+            templ = build_delta_k_template_only(p_work, dataset, observable_mode, debye_obj=debye_obj, with_diag=False)
+            K_dk = float(p_work.get("K_dk", 0.02))
+            B_dk = float(p_work.get("B_dk", 0.0)) if observable_mode == "dk_affine_m_chi2q" else 0.0
+            y_fit = np.clip(B_dk + K_dk * np.asarray(templ["template_u"], dtype=float), 0.0, np.inf)
+            y_obs = np.asarray(dataset["delta_k"], dtype=float)
+            residual = build_delta_k_residual(
+                y_obs=y_obs,
+                y_model=y_fit,
+                is_resolved=np.asarray(dataset["is_resolved"], dtype=bool),
+                sigma_resolved=SIGMA_DK,
+                sigma_censored=SIGMA_DK_CENSORED,
+                resolution_limit=DK_RESOLUTION_LIMIT,
+            )
+            resolved_mask = np.asarray(dataset["is_resolved"], dtype=bool)
+            rms = float(np.sqrt(np.mean((y_fit[resolved_mask] - y_obs[resolved_mask]) ** 2))) if np.any(resolved_mask) else float("nan")
+            sim = templ["sim"]
         wrms = float(np.sqrt(np.mean(residual ** 2)))
 
         rows.append(
@@ -236,8 +274,8 @@ def evaluate_fixed_model(
             {
                 "dataset_name": dataset["name"],
                 "t": np.asarray(dataset["t"], dtype=float),
-                "S_obs": S_obs,
-                "S_fit": np.asarray(S_fit, dtype=float),
+                "S_obs": y_obs,
+                "S_fit": np.asarray(y_fit, dtype=float),
             }
         )
         all_sq += float(np.sum(residual ** 2))
@@ -272,7 +310,7 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                     datasets=datasets,
                     p0=p_scan,
                     observable_mode=observable_mode,
-                    sigma_S=SIGMA_S,
+                    sigma_S=SIGMA_S if TARGET_KIND == "S" else SIGMA_DK,
                 )
                 wrms_map = {float(r["fluence_ratio"]): float(r["wrms"]) for r in dataset_rows}
                 row = {
@@ -291,18 +329,34 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                     "B0_obs": p_scan.get("B0_obs", float("nan")),
                 }
             else:
-                fit_bundle, res = fit_params_multi(
-                    datasets,
-                    p_scan,
-                    global_keys=SCAN_REOPT_GLOBAL_KEYS,
-                    local_keys=SCAN_REOPT_LOCAL_KEYS,
-                    observable_mode=observable_mode,
-                    sigma_S=SIGMA_S,
-                    max_nfev=60,
-                    progress_every=PROGRESS_EVERY,
-                    optimizer_verbose=OPTIMIZER_VERBOSE,
-                    enable_timing=ENABLE_TIMING,
-                )
+                if TARGET_KIND == "S":
+                    fit_bundle, res = fit_params_multi(
+                        datasets,
+                        p_scan,
+                        global_keys=SCAN_REOPT_GLOBAL_KEYS,
+                        local_keys=SCAN_REOPT_LOCAL_KEYS,
+                        observable_mode=observable_mode,
+                        sigma_S=SIGMA_S,
+                        max_nfev=60,
+                        progress_every=PROGRESS_EVERY,
+                        optimizer_verbose=OPTIMIZER_VERBOSE,
+                        enable_timing=ENABLE_TIMING,
+                    )
+                else:
+                    fit_bundle, res = fit_params_multi_dk(
+                        datasets,
+                        p_scan,
+                        global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+                        local_keys=[],
+                        observable_mode=observable_mode,
+                        sigma_dk=SIGMA_DK,
+                        sigma_dk_censored=SIGMA_DK_CENSORED,
+                        dk_resolution_limit=DK_RESOLUTION_LIMIT,
+                        max_nfev=60,
+                        progress_every=PROGRESS_EVERY,
+                        optimizer_verbose=OPTIMIZER_VERBOSE,
+                        enable_timing=ENABLE_TIMING,
+                    )
                 wrms_map = {
                     float(r["fluence_ratio"]): float(r["wrms"])
                     for r in fit_bundle["dataset_summary"]
@@ -378,19 +432,34 @@ def run_scan_suite(datasets: list[dict], p0: dict):
 # =========================
 def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
     p_mode, observable_mode = configure_mode(p0)
-
-    fit_bundle, res = fit_params_multi(
-        datasets,
-        p_mode,
-        global_keys=FULL_FIT_GLOBAL_KEYS,
-        local_keys=FULL_FIT_LOCAL_KEYS,
-        observable_mode=observable_mode,
-        sigma_S=SIGMA_S,
-        max_nfev=max_nfev,
-        progress_every=PROGRESS_EVERY,
-        optimizer_verbose=OPTIMIZER_VERBOSE,
-        enable_timing=ENABLE_TIMING,
-    )
+    if TARGET_KIND == "S":
+        fit_bundle, res = fit_params_multi(
+            datasets,
+            p_mode,
+            global_keys=FULL_FIT_GLOBAL_KEYS,
+            local_keys=FULL_FIT_LOCAL_KEYS,
+            observable_mode=observable_mode,
+            sigma_S=SIGMA_S,
+            max_nfev=max_nfev,
+            progress_every=PROGRESS_EVERY,
+            optimizer_verbose=OPTIMIZER_VERBOSE,
+            enable_timing=ENABLE_TIMING,
+        )
+    else:
+        fit_bundle, res = fit_params_multi_dk(
+            datasets,
+            p_mode,
+            global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+            local_keys=[],
+            observable_mode=observable_mode,
+            sigma_dk=SIGMA_DK,
+            sigma_dk_censored=SIGMA_DK_CENSORED,
+            dk_resolution_limit=DK_RESOLUTION_LIMIT,
+            max_nfev=max_nfev,
+            progress_every=PROGRESS_EVERY,
+            optimizer_verbose=OPTIMIZER_VERBOSE,
+            enable_timing=ENABLE_TIMING,
+        )
 
     return fit_bundle, res, export_root
 # =========================
@@ -467,6 +536,7 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
     print(f"status  = {res.status}")
     print(f"cost    = {res.cost:.6e}")
     print(f"nfev    = {res.nfev}")
+    print(f"target_kind = {fit_bundle.get('target_kind', TARGET_KIND)}")
     print(f"mode    = {fit_bundle['observable_mode']}")
     print(f"varpro  = {fit_bundle.get('use_varpro_readout')}")
     print(f"locals  = {fit_bundle['local_keys']}")
@@ -476,24 +546,35 @@ def print_fit_summary(fit_bundle, res, exports, wall_time_sec: float) -> None:
     for k in fit_bundle["global_keys"]:
         v = fit_bundle["best_global_params"].get(k, float("nan"))
         print(f"  {k:20s} = {v:.8g}")
+    if fit_bundle.get("target_kind") == "delta_k":
+        print(f"  {'K_dk':20s} = {fit_bundle['best_global_params'].get('K_dk', float('nan')):.8g}")
+        if "B_dk" in fit_bundle["best_global_params"]:
+            print(f"  {'B_dk':20s} = {fit_bundle['best_global_params'].get('B_dk', float('nan')):.8g}")
 
     print("\n=== dataset summary ===")
-    print("  dataset | fluence | rms | wrms | dt_i_ps | A_obs | B_obs | B_eff_obs | sigma_irf_ps | B0_obs | B1_obs")
+    print("  dataset | fluence | rms | wrms | dt_i_ps | sigma_irf_ps")
     for row in fit_bundle["dataset_summary"]:
         dt_i_ps = row.get("dt_i_ps", float("nan"))
-        print(
+        line = (
             f"  {row['dataset_name']:>22s} | "
             f"fluence={row['fluence_ratio']:.2f} | "
             f"rms={row['rms']:.4e} | "
             f"wrms={row['wrms']:.4e} | "
             f"dt_i_ps={dt_i_ps:.4f} | "
-            f"A_obs={float(row.get('A_obs', float('nan'))):.6g} | "
-            f"B_obs={float(row.get('B_obs', float('nan'))):.6g} | "
-            f"B_eff_obs={float(row.get('B_eff_obs', float('nan'))):.6g} | "
-            f"sigma_irf_ps={float(row.get('sigma_irf_ps', float('nan'))):.6g} | "
-            f"B0_obs={float(row.get('B0_obs', float('nan'))):.6g} | "
-            f"B1_obs={float(row.get('B1_obs', float('nan'))):.6g}"
+            f"sigma_irf_ps={float(row.get('sigma_irf_ps', float('nan'))):.6g}"
         )
+        if fit_bundle.get("target_kind") == "delta_k":
+            line += (
+                f" | n_resolved={int(row.get('n_resolved', 0))}"
+                f" | n_unresolved={int(row.get('n_unresolved', 0))}"
+            )
+        else:
+            line += (
+                f" | A_obs={float(row.get('A_obs', float('nan'))):.6g}"
+                f" | B_obs={float(row.get('B_obs', float('nan'))):.6g}"
+                f" | B_eff_obs={float(row.get('B_eff_obs', float('nan'))):.6g}"
+            )
+        print(line)
 
     _print_bound_warnings(fit_bundle)
 
@@ -537,7 +618,7 @@ def main() -> None:
         p0 = make_baseline_params()
         p0, observable_mode_preview = configure_mode(p0)
         print(
-            f"[mode] EXPERIMENT_MODE = {EXPERIMENT_MODE} | "
+            f"[mode] TARGET_KIND = {TARGET_KIND} | EXPERIMENT_MODE = {EXPERIMENT_MODE} | "
             f"default_observable = {MULTI_FIT_DEFAULT_OBSERVABLE_MODE} | "
             f"observable_mode = {observable_mode_preview} | "
             f"eta_representation = {p0['eta_representation']}"
