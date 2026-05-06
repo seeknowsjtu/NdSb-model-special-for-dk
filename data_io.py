@@ -735,6 +735,8 @@ def build_delta_k_template_only(
         "dk_affine_chi2q",
         "dk_m_chi2q",
         "dk_affine_m_chi2q",
+        "dk_rel_chi2q",
+        "dk_rel_m_chi2q",
     }:
         raise ValueError(f"build_delta_k_template_only unsupported mode: {observable_mode}")
 
@@ -753,7 +755,7 @@ def build_delta_k_template_only(
 
     chi2q = np.asarray(_compute_chi2q(sim), dtype=float)
 
-    if mode in {"dk_chi2q", "dk_affine_chi2q"}:
+    if mode in {"dk_chi2q", "dk_affine_chi2q", "dk_rel_chi2q"}:
         u = chi2q
     else:
         u = np.asarray(sim["m"], dtype=float) * chi2q
@@ -1325,6 +1327,8 @@ def fit_params_multi_dk(
         "dk_affine_chi2q",
         "dk_m_chi2q",
         "dk_affine_m_chi2q",
+        "dk_rel_chi2q",
+        "dk_rel_m_chi2q",
     }:
         raise ValueError(f"fit_params_multi_dk unsupported observable_mode: {observable_mode}")
 
@@ -1410,12 +1414,32 @@ def fit_params_multi_dk(
             F_ref=1.0,
         )
         K_dk = float(p_global.get("K_dk", p0.get("K_dk", 0.02)))
-        affine_mode = mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
-        B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if affine_mode else 0.0
+        u = np.asarray(tmpl["template_u"], dtype=float)
 
-        y_model = K_dk * np.asarray(tmpl["template_u"], dtype=float)
-        if affine_mode:
-            y_model = B_dk + y_model
+        affine_mode = mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
+        relative_mode = mode in {"dk_rel_chi2q", "dk_rel_m_chi2q"}
+
+        if relative_mode:
+            t_ps = np.asarray(dataset["t"], dtype=float) * 1e12
+            y_obs = np.asarray(dataset["delta_k"], dtype=float)
+
+            neg_mask = t_ps < 0.0
+            if int(np.count_nonzero(neg_mask)) >= 2:
+                base_mask = neg_mask
+            else:
+                base_mask = np.zeros_like(t_ps, dtype=bool)
+                base_mask[:min(3, t_ps.size)] = True
+
+            u0 = float(np.mean(u[base_mask]))
+            dk0 = float(np.mean(y_obs[base_mask]))
+
+            y_model = dk0 + K_dk * (u - u0)
+
+        else:
+            B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if affine_mode else 0.0
+            y_model = K_dk * u
+            if affine_mode:
+                y_model = B_dk + y_model
 
         y_model = np.clip(y_model, 0.0, np.inf)
         residual = build_delta_k_residual(
