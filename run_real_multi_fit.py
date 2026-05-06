@@ -11,9 +11,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 TARGET_KIND = "delta_k"  # "S" or "delta_k"
-EXPERIMENT_MODE = "dk_affine_m_chi2q"
+EXPERIMENT_MODE = "dk_rel_m_chi2q"
 # S modes: "raw_eta", "raw_chi2q", "raw_m_chi2q"
-# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"
+# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"
 
 from config import (
     default_params,
@@ -173,7 +173,7 @@ def configure_mode(p0: dict) -> tuple[dict, str]:
         else:
             raise ValueError(f"Unsupported S EXPERIMENT_MODE: {EXPERIMENT_MODE}")
     elif TARGET_KIND == "delta_k":
-        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"}:
             raise ValueError(f"Unsupported delta_k EXPERIMENT_MODE: {EXPERIMENT_MODE}")
         p["eta_representation"] = "cos2phi"
         observable_mode = mode
@@ -212,8 +212,8 @@ def make_initial_params() -> dict:
         # delta-k readout initial values.
         # fit_params_multi_dk() will automatically include K_dk,
         # and for dk_affine_m_chi2q it will also include B_dk.
-        p0["K_dk"] = 0.39336362975977485
-        p0["B_dk"] = -0.08411057007230946
+        p0["K_dk"] = 0.10
+        p0["B_dk"] = 0.0
 
         # fixed timing / resolution parameters
         # Use your calibrated value here.
