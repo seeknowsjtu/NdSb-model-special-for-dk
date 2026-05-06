@@ -121,7 +121,7 @@ def default_params() -> dict:
     p["B_dk"] = 0.0
     p["sigma_dk"] = 0.002
     p["sigma_dk_censored"] = 0.002
-    p["dk_resolution_limit"] = 0.003
+    p["dk_resolution_limit"] = 0.017
     p["USE_DK_CENSORED_LOSS"] = 1
     p["USE_DK_AFFINE_OFFSET"] = 0
 

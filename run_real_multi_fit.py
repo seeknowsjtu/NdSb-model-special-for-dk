@@ -10,10 +10,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-TARGET_KIND = "S"  # "S" or "delta_k"
-EXPERIMENT_MODE = "raw_m_chi2q"
+TARGET_KIND = "delta_k"  # "S" or "delta_k"
+EXPERIMENT_MODE = "dk_affine_m_chi2q"
 # S modes: "raw_eta", "raw_chi2q", "raw_m_chi2q"
-# delta-k modes: "dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"
+# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"
 
 from config import (
     default_params,
@@ -41,12 +41,22 @@ from solver import NdSb3TM
 # 1. 数据文件列表
 # =========================
 CSV_FILES = [
-    "deltak12k_1p0mW.csv",
-    "deltak12k_2p0mW.csv",
-    "deltak12k_2p5mW.csv",
-    # "deltak12k_3p0mW.csv",
-    # "deltak12k_3p5mW.csv",
-    # "deltak12k_4p0mW.csv",
+    "mdc data/deltak12k_1p0mW.csv",
+    "mdc data/deltak12k_2p0mW.csv",
+    "mdc data/deltak12k_2p5mW.csv",
+    "mdc data/deltak12k_3p0mW.csv",
+    "mdc data/deltak12k_3p5mW.csv",
+    "mdc data/deltak12k_4p0mW.csv",
+    # "spectral data/S_0p5mW.csv",
+    # # "spectral data/S_1p2mW.csv",
+    # "spectral data/S_2p0mW.csv",
+    # # "spectral data/S_2p7mW.csv",
+    # # "spectral data/S_3p5mW.csv",    
+    # # "spectral data/S_4p2mW.csv",
+    # # "spectral data/S_5p0mW.csv",
+    # # "spectral data/S_6p5mW.csv",
+    # # "spectral data/S_7p2mW.csv",
+    # "spectral data/S_8p0mW.csv",
 ]
 
 DATA_DIR = Path(".")
@@ -55,7 +65,7 @@ DATA_DIR = Path(".")
 # 2. 运行控制
 # =========================
 RUN_MODE = "fit"               # "fit" or "scan"
-SCAN_REOPTIMIZE_READOUT = True
+SCAN_REOPTIMIZE_READOUT = False
 SCAN_EXPORT_PLOTS = True
 SCAN_EXPORT_ROOT = "fit_results/scan_runs"
 
@@ -70,15 +80,28 @@ FULL_MAX_NFEV = 150             # 扫描模式下基本不会用到
 SIGMA_S = 0.02
 SIGMA_DK = 0.002
 SIGMA_DK_CENSORED = 0.002
-DK_RESOLUTION_LIMIT = 0.003
+DK_RESOLUTION_LIMIT = 0.017
 PROGRESS_EVERY = 5
 OPTIMIZER_VERBOSE = 2
 ENABLE_TIMING = True
 
-FULL_FIT_GLOBAL_KEYS = list(MULTI_FIT_DEFAULT_GLOBAL_KEYS)
+# Full-fit nonlinear global parameters.
+# We fix dt0_ps and sigma_irf_ps because the time zero / IRF are experimentally calibrated.
+# K_dk and B_dk do not need to be listed here: fit_params_multi_dk() adds them automatically
+# for dk_affine_* modes.
+FULL_FIT_GLOBAL_KEYS = [
+    k for k in MULTI_FIT_DEFAULT_GLOBAL_KEYS
+    if k not in {"dt0_ps", "sigma_irf_ps"}
+] + [
+    "tau_m0",
+    "tau_m_crit_amp",
+]
+
 FULL_FIT_LOCAL_KEYS = []
+
 # Scan reoptimize 只重调 readout 子集；命名上明确区别于 full fit。
 SCAN_REOPT_GLOBAL_KEYS: list[str] = []
+
 # Scan/readout compatibility knob: 在 USE_VARPRO_READOUT 主线下，A/B 由 varpro 线性读出；
 # 这里不是 full-fit nonlinear local keys，只用于扫描阶段的兼容性重优化入口。
 SCAN_REOPT_LOCAL_KEYS = ["A_obs", "B_obs"]
@@ -102,11 +125,7 @@ BASELINE_OVERRIDE = {
 }
 
 SCAN_SPECS = {
-    # "tau_e_sink": [1e-13, 2e-13, 5e-13, 1e-12, 3e-12],
-    "tau_s_sink": [3e-10, 5e-10, 1e-9, 2e-9, 3e-9, 5e-9, 1e-8],
-    # "tau_l_sink": [5e-11, 1e-10, 1.5e-10, 2e-10, 3e-10, 5e-10, 8e-10],
-    # "G_es0": [1e14, 3e14, 1e15, 3e15, 1e16],
-    # "G_el0": [1e13, 3e13, 1e14, 3e14, 5e14],
+    "K_dk": [0.072, 0.076, 0.080, 0.084, 0.088, 0.092],
 }
 
 # =========================
@@ -154,7 +173,7 @@ def configure_mode(p0: dict) -> tuple[dict, str]:
         else:
             raise ValueError(f"Unsupported S EXPERIMENT_MODE: {EXPERIMENT_MODE}")
     elif TARGET_KIND == "delta_k":
-        if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
             raise ValueError(f"Unsupported delta_k EXPERIMENT_MODE: {EXPERIMENT_MODE}")
         p["eta_representation"] = "cos2phi"
         observable_mode = mode
@@ -168,38 +187,68 @@ def configure_mode(p0: dict) -> tuple[dict, str]:
 def make_initial_params() -> dict:
     p0 = normalize_params_dict(default_params())
 
-    # ---------- 固定的动力学背景 ----------
-    p0["G_sl0"] = 3.04e14
-    p0["tau_m0"] = 3.0e-11
-    p0["tau_m_crit_amp"] = 0.0
-
-    # ---------- 先不要让 m^2 读出混进来 ----------
-    p0["lam_m2"] = 0.0
-
-    # ---------- 预热初始化保留 ----------
+    # common
     p0["use_hot_steady_init"] = 1
     p0["hot_init_mode"] = "avg_power"
     p0["rep_rate_Hz"] = 5.0e5
     p0["preheat_max_dT"] = 30.0
-    p0["S_scale"]   = 0.0611
-    # Current multi-fit mainline readout init is local (A_obs, B_obs).
-    p0["A_obs"]     = 0.0425
-    p0["B_obs"]     = 0.0232
-    # Keep B0/B1 for legacy global-background compatibility paths.
-    p0["B0_obs"]    = 0.0232
-    p0["G_es0"]     = 5.65e14
-    p0["G_el0"]     = 3.0e14
-    p0["tau_l_sink"] = 1.5e-10
     p0["pulse_width"] = 1.5e-13
-    p0["B1_obs"] = 0.0
     p0["USE_VARPRO_READOUT"] = True
     p0["target_kind"] = TARGET_KIND
-    p0["dk_mode"] = "dk_chi2q"
-    p0["K_dk"] = float(p0.get("K_dk", 0.02))
-    p0["B_dk"] = float(p0.get("B_dk", 0.0))
+
+    if TARGET_KIND == "delta_k":
+        p0["dk_mode"] = EXPERIMENT_MODE
+
+        # ---- seed from previous 1.0-4.0 mW global fit ----
+        # These are only initial guesses. Parameters listed in FULL_FIT_GLOBAL_KEYS
+        # will still be optimized.
+        p0["S_scale"] = 0.0507204193329889
+        p0["G_es0"] = 4.631928715729768e15
+        p0["G_el0"] = 1.4525590752943357e13
+        p0["G_sl0"] = 1.6286283118989362e14
+        p0["tau_l_sink"] = 3.679158176527993e-11
+        p0["tau_s_sink"] = 8.63801703975068e-10
+
+        # delta-k readout initial values.
+        # fit_params_multi_dk() will automatically include K_dk,
+        # and for dk_affine_m_chi2q it will also include B_dk.
+        p0["K_dk"] = 0.39336362975977485
+        p0["B_dk"] = -0.08411057007230946
+
+        # fixed timing / resolution parameters
+        # Use your calibrated value here.
+        p0["dt0_ps"] = 0.0
+        p0["sigma_irf_ps"] = 0.20
+
+        # magnetic order-parameter dynamics.
+        # These two are now floated by FULL_FIT_GLOBAL_KEYS.
+        p0["tau_m0"] = 25e-12
+        p0["tau_m_crit_amp"] = 120e-12
+
+        # keep these for compatibility; they are not the active dk readout here
+        p0["A_obs"] = 0.04
+        p0["B_obs"] = 0.02
+        p0["B0_obs"] = 0.02
+        p0["B1_obs"] = 0.0
+
+        # fixed background sink not used in FULL_FIT_GLOBAL_KEYS here
+        p0["tau_e_sink"] = 3.0e-12
+    else:
+        # keep your old S-mode initialization
+        p0["G_sl0"] = 3.04e14
+        p0["tau_m0"] = 3.0e-11
+        p0["tau_m_crit_amp"] = 0.0
+        p0["lam_m2"] = 0.0
+        p0["S_scale"] = 0.0611
+        p0["A_obs"] = 0.05
+        p0["B_obs"] = 0.30
+        p0["B0_obs"] = 0.30
+        p0["G_es0"] = 5.65e14
+        p0["G_el0"] = 3.0e14
+        p0["tau_l_sink"] = 1.5e-10
+        p0["B1_obs"] = 0.0
 
     return p0
-
 
 def make_baseline_params() -> dict:
     p0 = make_initial_params()
@@ -244,9 +293,12 @@ def evaluate_fixed_model(
             p_work["sigma_dk"] = SIGMA_DK
             p_work["sigma_dk_censored"] = SIGMA_DK_CENSORED
             p_work["dk_resolution_limit"] = DK_RESOLUTION_LIMIT
-            templ = build_delta_k_template_only(p_work, dataset, observable_mode, debye_obj=debye_obj, with_diag=False)
+            templ = build_delta_k_template_only(
+                p_work, dataset, observable_mode, debye_obj=debye_obj, with_diag=False
+            )
             K_dk = float(p_work.get("K_dk", 0.02))
-            B_dk = float(p_work.get("B_dk", 0.0)) if observable_mode == "dk_affine_m_chi2q" else 0.0
+            affine_mode = observable_mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
+            B_dk = float(p_work.get("B_dk", 0.0)) if affine_mode else 0.0
             y_fit = np.clip(B_dk + K_dk * np.asarray(templ["template_u"], dtype=float), 0.0, np.inf)
             y_obs = np.asarray(dataset["delta_k"], dtype=float)
             residual = build_delta_k_residual(
@@ -615,7 +667,7 @@ def main() -> None:
         datasets.sort(key=lambda d: d["fluence_ratio"])
         print_dataset_summary(datasets)
 
-        p0 = make_baseline_params()
+        p0 = make_initial_params()
         p0, observable_mode_preview = configure_mode(p0)
         print(
             f"[mode] TARGET_KIND = {TARGET_KIND} | EXPERIMENT_MODE = {EXPERIMENT_MODE} | "

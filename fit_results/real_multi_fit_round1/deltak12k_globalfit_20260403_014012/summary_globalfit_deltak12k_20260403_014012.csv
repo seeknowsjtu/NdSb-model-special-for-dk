@@ -1,0 +1,4 @@
+dataset,dataset_name,path,fluence_ratio,n_points,n_resolved,n_unresolved,rms,wrms,dt_i_ps,sigma_irf_ps
+deltak12k_1p0mW.csv,deltak12k_1p0mW.csv,deltak12k_1p0mW.csv,1.0,25,25,0,0.00328848730291473,1.6442436514573648,-0.7994111108311598,0.2
+deltak12k_2p0mW.csv,deltak12k_2p0mW.csv,deltak12k_2p0mW.csv,2.0,25,25,0,0.004365269274555598,2.1826346372777983,-0.7994111108311598,0.2
+deltak12k_2p5mW.csv,deltak12k_2p5mW.csv,deltak12k_2p5mW.csv,2.5,25,25,0,0.0036994919741404576,1.8497459870702289,-0.7994111108311598,0.2

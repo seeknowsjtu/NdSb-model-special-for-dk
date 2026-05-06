@@ -416,7 +416,7 @@ def _get_bounds_for_keys(keys):
         elif k == "G_sl_eta_coupling":
             lb.append(0.0); ub.append(5.0)
         elif k == "tau_l_sink":
-            lb.append(2e-10); ub.append(1e-8)
+            lb.append(2e-12); ub.append(1e-8)
         elif k == "tau_e_sink":
             lb.append(1e-13); ub.append(5e-9)
         elif k == "tau_s_sink":
@@ -719,7 +719,6 @@ def build_observable_template_only(
         "t_model": t_model,
     }
 
-
 def build_delta_k_template_only(
     p_global,
     p_dataset,
@@ -731,7 +730,12 @@ def build_delta_k_template_only(
 ):
     """Build only the delta-k template from simulated states."""
     mode = str(observable_mode).strip().lower()
-    if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+    if mode not in {
+        "dk_chi2q",
+        "dk_affine_chi2q",
+        "dk_m_chi2q",
+        "dk_affine_m_chi2q",
+    }:
         raise ValueError(f"build_delta_k_template_only unsupported mode: {observable_mode}")
 
     fluence_ratio = float(p_dataset.get("fluence_ratio", p_global.get("fluence_multiplier", 1.0)))
@@ -748,7 +752,8 @@ def build_delta_k_template_only(
     sim = model.simulate_aligned(t_model, with_diag=with_diag)
 
     chi2q = np.asarray(_compute_chi2q(sim), dtype=float)
-    if mode == "dk_chi2q":
+
+    if mode in {"dk_chi2q", "dk_affine_chi2q"}:
         u = chi2q
     else:
         u = np.asarray(sim["m"], dtype=float) * chi2q
@@ -1315,7 +1320,12 @@ def fit_params_multi_dk(
         raise ValueError("fit_params_multi_dk: datasets must be a non-empty list.")
 
     mode = str(observable_mode).strip().lower()
-    if mode not in {"dk_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q"}:
+    if mode not in {
+        "dk_chi2q",
+        "dk_affine_chi2q",
+        "dk_m_chi2q",
+        "dk_affine_m_chi2q",
+    }:
         raise ValueError(f"fit_params_multi_dk unsupported observable_mode: {observable_mode}")
 
     p0 = normalize_params_dict(p0)
@@ -1334,7 +1344,8 @@ def fit_params_multi_dk(
     global_keys = normalize_fit_keys(global_keys)
     if "K_dk" not in global_keys:
         global_keys = list(global_keys) + ["K_dk"]
-    if mode == "dk_affine_m_chi2q":
+
+    if mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}:
         if "B_dk" not in global_keys:
             global_keys = list(global_keys) + ["B_dk"]
     elif "B_dk" in global_keys:
@@ -1399,10 +1410,13 @@ def fit_params_multi_dk(
             F_ref=1.0,
         )
         K_dk = float(p_global.get("K_dk", p0.get("K_dk", 0.02)))
-        B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if mode == "dk_affine_m_chi2q" else 0.0
+        affine_mode = mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
+        B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if affine_mode else 0.0
+
         y_model = K_dk * np.asarray(tmpl["template_u"], dtype=float)
-        if mode == "dk_affine_m_chi2q":
+        if affine_mode:
             y_model = B_dk + y_model
+
         y_model = np.clip(y_model, 0.0, np.inf)
         residual = build_delta_k_residual(
             dataset["delta_k"],
