@@ -219,6 +219,7 @@ def make_initial_params() -> dict:
         # Use your calibrated value here.
         p0["dt0_ps"] = 0.0
         p0["sigma_irf_ps"] = 0.20
+        p0["sigma_dk_floor"] = 5e-4
 
         # magnetic order-parameter dynamics.
         # These two are now floated by FULL_FIT_GLOBAL_KEYS.
