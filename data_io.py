@@ -291,6 +291,10 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
             "k_split, ksplit, split_k."
         )
     resolved_col = _find_col(["resolved", "is_resolved", "dk_resolved", "split_resolved"])
+    sigma_col = _find_col([
+        "sigma_dk", "sigmadeltak12_k", "delta_k_err", "deltak_err",
+        "dk_err", "err", "error", "sigma",
+    ])
 
     t_col = _find_col(["tps", "t_ps", "time_ps", "t(ps)", "time(ps)", "time", "t"])
     if t_col is None:
@@ -303,6 +307,7 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
     t_raw = np.asarray(arr[t_col], dtype=float)
     t_sec = t_raw * 1e-12 if np.nanmax(np.abs(t_raw)) > 1e-6 else t_raw
     delta_raw = np.asarray(arr[dk_col], dtype=float)
+    sigma_raw = np.asarray(arr[sigma_col], dtype=float) if sigma_col is not None else None
 
     Te_raw = np.asarray(arr[te_col], dtype=float) if te_col is not None else None
     Ts_raw = np.asarray(arr[ts_col], dtype=float) if ts_col is not None else None
@@ -318,6 +323,7 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
 
     t_sec = t_sec[mask]
     delta_raw = delta_raw[mask]
+    sigma_raw = sigma_raw[mask] if sigma_raw is not None else None
     Te_raw = Te_raw[mask] if Te_raw is not None else None
     Ts_raw = Ts_raw[mask] if Ts_raw is not None else None
     Tl_raw = Tl_raw[mask] if Tl_raw is not None else None
@@ -328,6 +334,7 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
     Te_sorted = Te_raw[idx] if Te_raw is not None else None
     Ts_sorted = Ts_raw[idx] if Ts_raw is not None else None
     Tl_sorted = Tl_raw[idx] if Tl_raw is not None else None
+    sigma_sorted = sigma_raw[idx] if sigma_raw is not None else None
 
     if resolved_col is not None:
         raw = np.asarray(arr[resolved_col])[mask][idx]
@@ -352,6 +359,7 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
     Te_u = np.zeros_like(t_u, dtype=float) if Te_sorted is not None else None
     Ts_u = np.zeros_like(t_u, dtype=float) if Ts_sorted is not None else None
     Tl_u = np.zeros_like(t_u, dtype=float) if Tl_sorted is not None else None
+    sigma_sum_sq_u = np.zeros_like(t_u, dtype=float) if sigma_sorted is not None else None
     for i, g in enumerate(inv):
         delta_u[g] += delta_sorted[i]
         cnt[g] += 1.0
@@ -362,6 +370,10 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
             Ts_u[g] += Ts_sorted[i]
         if Tl_u is not None:
             Tl_u[g] += Tl_sorted[i]
+        if sigma_sum_sq_u is not None:
+            sig_i = sigma_sorted[i]
+            if np.isfinite(sig_i):
+                sigma_sum_sq_u[g] += sig_i ** 2
     delta_u = delta_u / np.maximum(cnt, 1.0)
     if Te_u is not None:
         Te_u = Te_u / np.maximum(cnt, 1.0)
@@ -369,6 +381,9 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
         Ts_u = Ts_u / np.maximum(cnt, 1.0)
     if Tl_u is not None:
         Tl_u = Tl_u / np.maximum(cnt, 1.0)
+    sigma_u = None
+    if sigma_sum_sq_u is not None:
+        sigma_u = np.sqrt(sigma_sum_sq_u) / np.maximum(cnt, 1.0)
 
     return {
         "name": Path(path).name,
@@ -378,6 +393,7 @@ def load_dk_dataset_csv(path: str | Path, resolution_limit: float | None = None)
         "Ts": np.asarray(Ts_u, dtype=float) if Ts_u is not None else None,
         "Tl": np.asarray(Tl_u, dtype=float) if Tl_u is not None else None,
         "delta_k": np.asarray(delta_u, dtype=float),
+        "sigma_dk": np.asarray(sigma_u, dtype=float) if sigma_u is not None else None,
         "S": np.asarray(delta_u, dtype=float),
         "is_resolved": np.asarray(resolved_u, dtype=bool),
         "fluence_ratio": parse_fluence_ratio_from_name(str(path)),
@@ -770,7 +786,16 @@ def build_delta_k_template_only(
     }
 
 
-def build_delta_k_residual(y_obs, y_model, is_resolved, sigma_resolved, sigma_censored, resolution_limit):
+def build_delta_k_residual(
+    y_obs,
+    y_model,
+    is_resolved,
+    sigma_resolved,
+    sigma_censored,
+    resolution_limit,
+    sigma_point=None,
+    sigma_floor=None,
+):
     """Build censored residuals for resolved/unresolved delta-k observations."""
     y_obs = np.asarray(y_obs, dtype=float)
     y_model = np.asarray(y_model, dtype=float)
@@ -782,11 +807,22 @@ def build_delta_k_residual(y_obs, y_model, is_resolved, sigma_resolved, sigma_ce
     sigma_resolved = float(max(sigma_resolved, 1e-12))
     sigma_censored = float(max(sigma_censored, 1e-12))
     resolution_limit = float(resolution_limit)
+    sigma_floor = float(max(sigma_floor if sigma_floor is not None else 1e-12, 1e-12))
+
+    sigma_eff = np.full_like(y_obs, sigma_resolved, dtype=float)
+    if sigma_point is not None:
+        sigma_point = np.asarray(sigma_point, dtype=float)
+        if sigma_point.shape != y_obs.shape:
+            raise ValueError(
+                "build_delta_k_residual shape mismatch: sigma_point must match y_obs shape."
+            )
+        valid = np.isfinite(sigma_point) & (sigma_point > 0.0)
+        sigma_eff[valid] = np.maximum(sigma_point[valid], sigma_floor)
 
     r = np.zeros_like(y_obs, dtype=float)
     resolved_mask = is_resolved
     unresolved_mask = ~resolved_mask
-    r[resolved_mask] = (y_model[resolved_mask] - y_obs[resolved_mask]) / sigma_resolved
+    r[resolved_mask] = (y_model[resolved_mask] - y_obs[resolved_mask]) / sigma_eff[resolved_mask]
     over = y_model[unresolved_mask] > resolution_limit
     if np.any(over):
         idx = np.where(unresolved_mask)[0][over]
@@ -1366,6 +1402,13 @@ def fit_params_multi_dk(
             raise ValueError(f"Dataset '{name}' must provide matching 1D t and delta_k arrays.")
         if resolved.shape != y.shape:
             raise ValueError(f"Dataset '{name}' has mismatched is_resolved shape: {resolved.shape} vs {y.shape}.")
+        sigma_point = dataset.get("sigma_dk", None)
+        if sigma_point is not None:
+            sigma_point = np.asarray(sigma_point, dtype=float)
+            if sigma_point.shape != y.shape:
+                raise ValueError(
+                    f"Dataset '{name}' has mismatched sigma_dk shape: {sigma_point.shape} vs {y.shape}."
+                )
         fluence_ratio = dataset.get("fluence_ratio")
         if fluence_ratio is None:
             raise ValueError(f"Dataset '{name}' is missing required key 'fluence_ratio'.")
@@ -1379,6 +1422,7 @@ def fit_params_multi_dk(
             "Ts": dataset.get("Ts"),
             "Tl": dataset.get("Tl"),
             "fluence_ratio": float(fluence_ratio),
+            "sigma_dk": sigma_point,
         })
 
     lb, ub = _build_fit_bounds(global_keys, _get_bounds_for_keys)
@@ -1449,6 +1493,8 @@ def fit_params_multi_dk(
             sigma_resolved,
             sigma_censored,
             resolution_limit,
+            sigma_point=dataset.get("sigma_dk", None),
+            sigma_floor=p0.get("sigma_dk_floor", 1e-12),
         )
         return {
             "name": dataset["name"],
@@ -1467,6 +1513,7 @@ def fit_params_multi_dk(
             "phi_fit": np.asarray(tmpl["sim"]["phi"], dtype=float),
             "chi2q_fit": np.asarray(_compute_chi2q(tmpl["sim"]), dtype=float),
             "residual": np.asarray(residual, dtype=float),
+            "sigma_dk": np.asarray(dataset["sigma_dk"], dtype=float) if dataset.get("sigma_dk", None) is not None else None,
             "sim": tmpl["sim"],
             "diag": tmpl["sim"].get("diag"),
             "dt_i_ps": float(tmpl["dt_i_ps"]),
@@ -1665,9 +1712,11 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
             dataset_token = _slugify_dataset_name(item["name"])
             curve_path = out_dir / f"fitcurve_{dataset_token}_{timestamp}.csv"
             if target_kind == "delta_k":
+                sigma_col = np.asarray(item["sigma_dk"], dtype=float) if item.get("sigma_dk") is not None else np.full_like(np.asarray(item["delta_k_exp"], dtype=float), np.nan, dtype=float)
                 stacked = np.column_stack([
                     item["t"] * 1e12,
                     item["delta_k_exp"],
+                    sigma_col,
                     item["delta_k_fit"],
                     item["m_fit"],
                     item["eta_fit"],
@@ -1675,7 +1724,7 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                     item["residual"],
                     item["is_resolved"].astype(int),
                 ])
-                header = "t_ps,delta_k_exp,delta_k_fit,m_fit,eta_fit,chi2q_fit,residual,is_resolved"
+                header = "t_ps,delta_k_exp,sigma_dk,delta_k_fit,m_fit,eta_fit,chi2q_fit,residual,is_resolved"
             else:
                 stacked = np.column_stack([
                     item["t"] * 1e12,
