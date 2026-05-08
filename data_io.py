@@ -753,6 +753,8 @@ def build_delta_k_template_only(
         "dk_affine_m_chi2q",
         "dk_rel_chi2q",
         "dk_rel_m_chi2q",
+        "dk_raw_chi2q",
+        "dk_raw_m_chi2q",
     }:
         raise ValueError(f"build_delta_k_template_only unsupported mode: {observable_mode}")
 
@@ -771,7 +773,7 @@ def build_delta_k_template_only(
 
     chi2q = np.asarray(_compute_chi2q(sim), dtype=float)
 
-    if mode in {"dk_chi2q", "dk_affine_chi2q", "dk_rel_chi2q"}:
+    if mode in {"dk_chi2q", "dk_affine_chi2q", "dk_rel_chi2q", "dk_raw_chi2q"}:
         u = chi2q
     else:
         u = np.asarray(sim["m"], dtype=float) * chi2q
@@ -1365,8 +1367,11 @@ def fit_params_multi_dk(
         "dk_affine_m_chi2q",
         "dk_rel_chi2q",
         "dk_rel_m_chi2q",
+        "dk_raw_chi2q",
+        "dk_raw_m_chi2q",
     }:
         raise ValueError(f"fit_params_multi_dk unsupported observable_mode: {observable_mode}")
+    raw_ab_mode = mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
 
     p0 = normalize_params_dict(p0)
     sigma_resolved = float(max(sigma_dk if sigma_dk is not None else p0.get("sigma_dk", 0.002), 1e-12))
@@ -1382,10 +1387,18 @@ def fit_params_multi_dk(
         raise ValueError("fit_params_multi_dk currently supports only empty local_keys.")
 
     global_keys = normalize_fit_keys(global_keys)
-    if "K_dk" not in global_keys:
-        global_keys = list(global_keys) + ["K_dk"]
+    if raw_ab_mode:
+        global_keys = [
+            k for k in global_keys
+            if k not in {"K_dk", "B_dk", "A_obs", "B_obs", "B0_obs", "B1_obs"}
+        ]
+    else:
+        if "K_dk" not in global_keys:
+            global_keys = list(global_keys) + ["K_dk"]
 
-    if mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}:
+    if raw_ab_mode:
+        global_keys = [k for k in global_keys if k != "B_dk"]
+    elif mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}:
         if "B_dk" not in global_keys:
             global_keys = list(global_keys) + ["B_dk"]
     elif "B_dk" in global_keys:
@@ -1457,16 +1470,42 @@ def fit_params_multi_dk(
             with_diag=with_diag,
             F_ref=1.0,
         )
-        K_dk = float(p_global.get("K_dk", p0.get("K_dk", 0.02)))
         u = np.asarray(tmpl["template_u"], dtype=float)
-
+        K_dk = float(p_global.get("K_dk", p0.get("K_dk", 0.02)))
+        A_obs_i = float("nan")
+        B_obs_i = float("nan")
+        y_obs = np.asarray(dataset["delta_k"], dtype=float)
+        sigma_floor = float(max(p0.get("sigma_dk_floor", 1e-12), 1e-12))
+        raw_ab_mode = mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
         affine_mode = mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
         relative_mode = mode in {"dk_rel_chi2q", "dk_rel_m_chi2q"}
 
-        if relative_mode:
+        if raw_ab_mode:
+            mask = np.isfinite(u) & np.isfinite(y_obs)
+            sigma_point = dataset.get("sigma_dk", None)
+            if sigma_point is not None:
+                sigma_point = np.asarray(sigma_point, dtype=float)
+                valid_sigma = np.isfinite(sigma_point) & (sigma_point > 0.0)
+                mask = mask & valid_sigma
+                w = 1.0 / np.maximum(sigma_point[mask], sigma_floor)
+                X = np.column_stack([u[mask], np.ones(np.count_nonzero(mask))])
+                Xw = X * w[:, None]
+                yw = y_obs[mask] * w
+                coef, *_ = np.linalg.lstsq(Xw, yw, rcond=None)
+            else:
+                X = np.column_stack([u[mask], np.ones(np.count_nonzero(mask))])
+                coef, *_ = np.linalg.lstsq(X, y_obs[mask], rcond=None)
+            A_obs_i = float(coef[0])
+            B_obs_i = float(coef[1])
+            y_model = B_obs_i + A_obs_i * u
+            sigma_point = dataset.get("sigma_dk", None)
+            if sigma_point is not None:
+                sigma_eff = np.maximum(np.asarray(sigma_point, dtype=float), sigma_floor)
+            else:
+                sigma_eff = np.full_like(y_obs, sigma_resolved, dtype=float)
+            residual = (y_model - y_obs) / sigma_eff
+        elif relative_mode:
             t_ps = np.asarray(dataset["t"], dtype=float) * 1e12
-            y_obs = np.asarray(dataset["delta_k"], dtype=float)
-
             neg_mask = t_ps < 0.0
             if int(np.count_nonzero(neg_mask)) >= 2:
                 base_mask = neg_mask
@@ -1478,24 +1517,28 @@ def fit_params_multi_dk(
             dk0 = float(np.mean(y_obs[base_mask]))
 
             y_model = dk0 + K_dk * (u - u0)
-
+            A_obs_i = K_dk
+            B_obs_i = dk0 - K_dk * u0
         else:
             B_dk = float(p_global.get("B_dk", p0.get("B_dk", 0.0))) if affine_mode else 0.0
             y_model = K_dk * u
             if affine_mode:
                 y_model = B_dk + y_model
+            A_obs_i = K_dk
+            B_obs_i = B_dk if affine_mode else 0.0
 
-        y_model = np.clip(y_model, 0.0, np.inf)
-        residual = build_delta_k_residual(
-            dataset["delta_k"],
-            y_model,
-            dataset["is_resolved"],
-            sigma_resolved,
-            sigma_censored,
-            resolution_limit,
-            sigma_point=dataset.get("sigma_dk", None),
-            sigma_floor=p0.get("sigma_dk_floor", 1e-12),
-        )
+        if not raw_ab_mode:
+            y_model = np.clip(y_model, 0.0, np.inf)
+            residual = build_delta_k_residual(
+                dataset["delta_k"],
+                y_model,
+                dataset["is_resolved"],
+                sigma_resolved,
+                sigma_censored,
+                resolution_limit,
+                sigma_point=dataset.get("sigma_dk", None),
+                sigma_floor=p0.get("sigma_dk_floor", 1e-12),
+            )
         return {
             "name": dataset["name"],
             "path": dataset["path"],
@@ -1514,6 +1557,9 @@ def fit_params_multi_dk(
             "chi2q_fit": np.asarray(_compute_chi2q(tmpl["sim"]), dtype=float),
             "residual": np.asarray(residual, dtype=float),
             "sigma_dk": np.asarray(dataset["sigma_dk"], dtype=float) if dataset.get("sigma_dk", None) is not None else None,
+            "A_obs": float(A_obs_i),
+            "B_obs": float(B_obs_i),
+            "readout_mode": "per_dataset_AB" if raw_ab_mode else "global_K",
             "sim": tmpl["sim"],
             "diag": tmpl["sim"].get("diag"),
             "dt_i_ps": float(tmpl["dt_i_ps"]),
@@ -1571,6 +1617,9 @@ def fit_params_multi_dk(
             "wrms": wrms,
             "dt_i_ps": float(evaluated["dt_i_ps"]),
             "sigma_irf_ps": float(evaluated["sigma_irf_ps"]),
+            "A_obs": float(evaluated.get("A_obs", np.nan)),
+            "B_obs": float(evaluated.get("B_obs", np.nan)),
+            "readout_mode": evaluated.get("readout_mode", ""),
         })
 
     elapsed_sec = max(perf_counter() - fit_start_time, 0.0)
@@ -1678,6 +1727,9 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                 "wrms",
                 "dt_i_ps",
                 "sigma_irf_ps",
+                "A_obs",
+                "B_obs",
+                "readout_mode",
             ]
         else:
             fieldnames = [
@@ -1723,8 +1775,10 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
                     item["chi2q_fit"],
                     item["residual"],
                     item["is_resolved"].astype(int),
+                    np.full_like(item["t"], item.get("A_obs", np.nan), dtype=float),
+                    np.full_like(item["t"], item.get("B_obs", np.nan), dtype=float),
                 ])
-                header = "t_ps,delta_k_exp,sigma_dk,delta_k_fit,m_fit,eta_fit,chi2q_fit,residual,is_resolved"
+                header = "t_ps,delta_k_exp,sigma_dk,delta_k_fit,m_fit,eta_fit,chi2q_fit,residual,is_resolved,A_obs,B_obs"
             else:
                 stacked = np.column_stack([
                     item["t"] * 1e12,
@@ -1780,6 +1834,8 @@ def export_multi_fit_results(fit_bundle, optimizer_result, export_root="fit_resu
     if target_kind == "delta_k":
         axes[1].plot(flu, [row.get("n_resolved", np.nan) for row in fit_bundle["dataset_summary"]], marker="s", label="n_resolved")
         axes[1].plot(flu, [row.get("n_unresolved", np.nan) for row in fit_bundle["dataset_summary"]], marker="d", label="n_unresolved")
+        axes[1].plot(flu, [row.get("A_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="^", label="A_obs")
+        axes[1].plot(flu, [row.get("B_obs", np.nan) for row in fit_bundle["dataset_summary"]], marker="v", label="B_obs")
     else:
         axes[1].plot(flu, [row["A_obs"] for row in fit_bundle["dataset_summary"]], marker="s", label="A_obs")
         if any(np.isfinite(float(row.get("B_obs", np.nan))) for row in fit_bundle["dataset_summary"]):

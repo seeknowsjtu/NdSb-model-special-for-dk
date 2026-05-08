@@ -11,9 +11,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 TARGET_KIND = "delta_k"  # "S" or "delta_k"
-EXPERIMENT_MODE = "dk_rel_m_chi2q"
+EXPERIMENT_MODE = "dk_raw_m_chi2q"
 # S modes: "raw_eta", "raw_chi2q", "raw_m_chi2q"
-# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"
+# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q", "dk_raw_chi2q", "dk_raw_m_chi2q"
 
 from config import (
     default_params,
@@ -41,12 +41,12 @@ from solver import NdSb3TM
 # 1. 数据文件列表
 # =========================
 CSV_FILES = [
-    "mdc data/deltak12k_1p0mW.csv",
-    "mdc data/deltak12k_2p0mW.csv",
-    "mdc data/deltak12k_2p5mW.csv",
-    "mdc data/deltak12k_3p0mW.csv",
-    "mdc data/deltak12k_3p5mW.csv",
-    "mdc data/deltak12k_4p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_1p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_2p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_2p5mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_3p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_3p5mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_4p0mW.csv",
     # "spectral data/S_0p5mW.csv",
     # # "spectral data/S_1p2mW.csv",
     # "spectral data/S_2p0mW.csv",
@@ -173,7 +173,7 @@ def configure_mode(p0: dict) -> tuple[dict, str]:
         else:
             raise ValueError(f"Unsupported S EXPERIMENT_MODE: {EXPERIMENT_MODE}")
     elif TARGET_KIND == "delta_k":
-        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"}:
+        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q", "dk_raw_chi2q", "dk_raw_m_chi2q"}:
             raise ValueError(f"Unsupported delta_k EXPERIMENT_MODE: {EXPERIMENT_MODE}")
         p["eta_representation"] = "cos2phi"
         observable_mode = mode
@@ -396,10 +396,21 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                         enable_timing=ENABLE_TIMING,
                     )
                 else:
+                    raw_dk_mode = observable_mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
+                    if raw_dk_mode:
+                        if scan_param == "K_dk":
+                            print(f"[scan] skip {scan_param} in raw dk mode ({observable_mode}): K_dk is unused.", flush=True)
+                            continue
+                        dk_global_keys = [
+                            k for k in FULL_FIT_GLOBAL_KEYS
+                            if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs", "K_dk", "B_dk"}
+                        ]
+                    else:
+                        dk_global_keys = [k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"]
                     fit_bundle, res = fit_params_multi_dk(
                         datasets,
                         p_scan,
-                        global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+                        global_keys=dk_global_keys,
                         local_keys=[],
                         observable_mode=observable_mode,
                         sigma_dk=SIGMA_DK,
@@ -499,10 +510,18 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
             enable_timing=ENABLE_TIMING,
         )
     else:
+        raw_dk_mode = observable_mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
+        if raw_dk_mode:
+            dk_global_keys = [
+                k for k in FULL_FIT_GLOBAL_KEYS
+                if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs", "K_dk", "B_dk"}
+            ]
+        else:
+            dk_global_keys = [k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"]
         fit_bundle, res = fit_params_multi_dk(
             datasets,
             p_mode,
-            global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+            global_keys=dk_global_keys,
             local_keys=[],
             observable_mode=observable_mode,
             sigma_dk=SIGMA_DK,
