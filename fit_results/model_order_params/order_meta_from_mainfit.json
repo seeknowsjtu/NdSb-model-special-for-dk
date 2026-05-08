@@ -1,31 +1,66 @@
 {
   "source_mainfit_json": "F:\\python4git\\simulate_dk\\fit_results\\real_multi_fit_round1\\deltak12k_globalfit_20260328_083202\\globalfit_deltak12k_raw_m_chi2q_1p0to2p5mW_20260328_083202.json",
-  "custom_channel": "Ts",
+  "target_kind": "unknown",
+  "observable_mode": "raw_m_chi2q",
   "fluence_rows": [
     {
       "fluence_ratio": 1.0,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     },
     {
       "fluence_ratio": 2.0,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     },
     {
       "fluence_ratio": 2.5,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     },
     {
       "fluence_ratio": 3.0,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     },
     {
       "fluence_ratio": 3.5,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     },
     {
       "fluence_ratio": 4.0,
-      "dt_i_ps": 0.5146593205424301
+      "dt_i_ps": 0.5146593205424301,
+      "TN": 15.0,
+      "TR": 13.0
     }
+  ],
+  "order_channels": [
+    "m",
+    "chi2q",
+    "eta",
+    "phi",
+    "m_chi2q",
+    "m2_chi2q2",
+    "m2_chi2q",
+    "m2"
+  ],
+  "diagnostic_channels": [
+    "Te",
+    "Ts",
+    "Tl",
+    "meq",
+    "tau_m",
+    "tau_m_ps",
+    "dm_dt",
+    "dm_dt_per_ps",
+    "Ts_minus_TN",
+    "above_TN"
   ],
   "best_global_params": {
     "T_bath": 4.0,

@@ -46,8 +46,9 @@ OUTPUT_DIR = Path("fit_results/model_temperatures")
 OUTPUT_TAG = "from_mainfit3"
 
 # Main-fit JSON from the 3-group fit
-MAINFIT_JSON = Path("F:\python4git\simulate\fit_results\real_multi_fit_smoke\deltak12k_globalfit_20260327_100946\globalfit_deltak12k_raw_m_chi2q_1p0to2p5mW_20260327_100946.json")
-# 改成你的实际路径即可；如果不存在，会自动找最近的 1.0~2.5mW json
+MAINFIT_JSON = Path(
+    r"F:\python4git\simulate_dk\fit_results\real_multi_fit_round1\deltak12k_globalfit_20260328_083202\globalfit_deltak12k_raw_m_chi2q_1p0to2p5mW_20260328_083202.json"
+)
 
 # Fluences to simulate
 FLUENCE_LIST = [1.0, 2.0, 2.5, 3.0, 3.5, 4.0]
@@ -87,13 +88,9 @@ def resolve_mainfit_json() -> Path:
     if MAINFIT_JSON.exists():
         return MAINFIT_JSON
 
-    latest = find_latest_json("fit_results/**/globalfit_*raw_m_chi2q*1p0to2p5mW*.json")
-    if latest is not None:
-        return latest
-
     raise FileNotFoundError(
-        "Cannot find the 3-group main-fit JSON. "
-        "Please set MAINFIT_JSON explicitly."
+        f"MAINFIT_JSON does not exist:\n{MAINFIT_JSON}\n"
+        "Please check the path. Use raw string r'...' for Windows paths."
     )
 
 

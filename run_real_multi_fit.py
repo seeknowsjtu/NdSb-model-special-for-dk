@@ -41,12 +41,12 @@ from solver import NdSb3TM
 # 1. 数据文件列表
 # =========================
 CSV_FILES = [
-    "mdc data/deltak12k_1p0mW.csv",
-    "mdc data/deltak12k_2p0mW.csv",
-    "mdc data/deltak12k_2p5mW.csv",
-    "mdc data/deltak12k_3p0mW.csv",
-    "mdc data/deltak12k_3p5mW.csv",
-    "mdc data/deltak12k_4p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_1p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_2p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_2p5mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_3p0mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_3p5mW.csv",
+    "SW6_DK_SIGMA_CSV/dk_4p0mW.csv",
     # "spectral data/S_0p5mW.csv",
     # # "spectral data/S_1p2mW.csv",
     # "spectral data/S_2p0mW.csv",
@@ -94,7 +94,6 @@ FULL_FIT_GLOBAL_KEYS = [
     if k not in {"dt0_ps", "sigma_irf_ps"}
 ] + [
     "tau_m0",
-    "tau_m_crit_amp",
 ]
 
 FULL_FIT_LOCAL_KEYS = []
@@ -135,7 +134,7 @@ def load_dataset(path: Path) -> dict:
     if TARGET_KIND == "S":
         return load_s_dataset_csv_raw(path)
     if TARGET_KIND == "delta_k":
-        return load_dk_dataset_csv(path)
+        return load_dk_dataset_csv(path, resolution_limit=DK_RESOLUTION_LIMIT)
     raise ValueError(f"Unsupported TARGET_KIND: {TARGET_KIND}")
 
 # =========================
@@ -199,32 +198,22 @@ def make_initial_params() -> dict:
     if TARGET_KIND == "delta_k":
         p0["dk_mode"] = EXPERIMENT_MODE
 
-        # ---- seed from previous 1.0-4.0 mW global fit ----
-        # These are only initial guesses. Parameters listed in FULL_FIT_GLOBAL_KEYS
-        # will still be optimized.
-        p0["S_scale"] = 0.0507204193329889
-        p0["G_es0"] = 4.631928715729768e15
-        p0["G_el0"] = 1.4525590752943357e13
-        p0["G_sl0"] = 1.6286283118989362e14
-        p0["tau_l_sink"] = 3.679158176527993e-11
-        p0["tau_s_sink"] = 8.63801703975068e-10
+        p0["S_scale"] = 0.051253528219523205
+        p0["G_es0"] = 1.332952645326465e15
+        p0["G_el0"] = 1.333109545415347e13
+        p0["G_sl0"] = 3.9602777184916975e14
+        p0["tau_l_sink"] = 9.396887116267316e-11
+        p0["tau_s_sink"] = 1.3344528059084532e-08
 
-        # delta-k readout initial values.
-        # fit_params_multi_dk() will automatically include K_dk,
-        # and for dk_affine_m_chi2q it will also include B_dk.
-        p0["K_dk"] = 0.10
+        p0["K_dk"] = 0.42583096308291457
         p0["B_dk"] = 0.0
 
-        # fixed timing / resolution parameters
-        # Use your calibrated value here.
         p0["dt0_ps"] = 0.0
         p0["sigma_irf_ps"] = 0.20
         p0["sigma_dk_floor"] = 5e-4
 
-        # magnetic order-parameter dynamics.
-        # These two are now floated by FULL_FIT_GLOBAL_KEYS.
-        p0["tau_m0"] = 25e-12
-        p0["tau_m_crit_amp"] = 120e-12
+        p0["tau_m0"] = 2.586157936289884e-11
+        p0["tau_m_crit_amp"] = 0.0
 
         # keep these for compatibility; they are not the active dk readout here
         p0["A_obs"] = 0.04
@@ -309,6 +298,8 @@ def evaluate_fixed_model(
                 sigma_resolved=SIGMA_DK,
                 sigma_censored=SIGMA_DK_CENSORED,
                 resolution_limit=DK_RESOLUTION_LIMIT,
+                sigma_point=dataset.get("sigma_dk", None),
+                sigma_floor=p0.get("sigma_dk_floor", 1e-12),
             )
             resolved_mask = np.asarray(dataset["is_resolved"], dtype=bool)
             rms = float(np.sqrt(np.mean((y_fit[resolved_mask] - y_obs[resolved_mask]) ** 2))) if np.any(resolved_mask) else float("nan")
