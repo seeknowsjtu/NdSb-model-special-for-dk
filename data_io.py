@@ -1372,6 +1372,7 @@ def fit_params_multi_dk(
         "dk_raw_m_chi2q",
     }:
         raise ValueError(f"fit_params_multi_dk unsupported observable_mode: {observable_mode}")
+    raw_ab_mode = mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
 
     p0 = normalize_params_dict(p0)
     sigma_resolved = float(max(sigma_dk if sigma_dk is not None else p0.get("sigma_dk", 0.002), 1e-12))
@@ -1380,7 +1381,10 @@ def fit_params_multi_dk(
 
     if global_keys is None:
         base = [k for k in MULTI_FIT_DEFAULT_GLOBAL_KEYS if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs"}]
-        global_keys = list(base) + (["K_dk"] if "K_dk" not in base else [])
+        if raw_ab_mode:
+            global_keys = list(base)
+        else:
+            global_keys = list(base) + ([] if "K_dk" in base else ["K_dk"])
     if local_keys is None:
         local_keys = []
     if local_keys:
@@ -1474,11 +1478,11 @@ def fit_params_multi_dk(
         u = np.asarray(tmpl["template_u"], dtype=float)
         y_obs = np.asarray(dataset["delta_k"], dtype=float)
 
-        raw_ab_mode = mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
+        local_raw_ab_mode = mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
         affine_mode = mode in {"dk_affine_chi2q", "dk_affine_m_chi2q"}
         relative_mode = mode in {"dk_rel_chi2q", "dk_rel_m_chi2q"}
 
-        if raw_ab_mode:
+        if local_raw_ab_mode:
             mask = np.isfinite(u) & np.isfinite(y_obs)
             sigma_point = dataset.get("sigma_dk", None)
             if sigma_point is not None:
@@ -1572,7 +1576,7 @@ def fit_params_multi_dk(
             "sigma_irf_ps": float(tmpl["sigma_irf_ps"]),
             "A_obs": float(A_obs_i),
             "B_obs": float(B_obs_i),
-            "readout_mode": "per_dataset_AB" if raw_ab_mode else "global_K",
+            "readout_mode": "per_dataset_AB" if local_raw_ab_mode else "global_K",
         }
 
     def residual(x):
