@@ -11,9 +11,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 TARGET_KIND = "delta_k"  # "S" or "delta_k"
-EXPERIMENT_MODE = "dk_rel_m_chi2q"
+EXPERIMENT_MODE = "dk_raw_m_chi2q"
 # S modes: "raw_eta", "raw_chi2q", "raw_m_chi2q"
-# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"
+# delta-k modes: "dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q", "dk_raw_chi2q", "dk_raw_m_chi2q"
 
 from config import (
     default_params,
@@ -172,7 +172,7 @@ def configure_mode(p0: dict) -> tuple[dict, str]:
         else:
             raise ValueError(f"Unsupported S EXPERIMENT_MODE: {EXPERIMENT_MODE}")
     elif TARGET_KIND == "delta_k":
-        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q"}:
+        if mode not in {"dk_chi2q", "dk_affine_chi2q", "dk_m_chi2q", "dk_affine_m_chi2q", "dk_rel_chi2q", "dk_rel_m_chi2q", "dk_raw_chi2q", "dk_raw_m_chi2q"}:
             raise ValueError(f"Unsupported delta_k EXPERIMENT_MODE: {EXPERIMENT_MODE}")
         p["eta_representation"] = "cos2phi"
         observable_mode = mode
@@ -387,10 +387,21 @@ def run_scan_suite(datasets: list[dict], p0: dict):
                         enable_timing=ENABLE_TIMING,
                     )
                 else:
+                    raw_dk_mode = observable_mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
+                    if raw_dk_mode and scan_param == "K_dk":
+                        print(f"[scan] skip {scan_param}={scan_value:.6e} for raw dk mode {observable_mode} (K_dk unused)", flush=True)
+                        continue
+                    if raw_dk_mode:
+                        dk_global_keys = [
+                            k for k in FULL_FIT_GLOBAL_KEYS
+                            if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs", "K_dk", "B_dk"}
+                        ]
+                    else:
+                        dk_global_keys = [k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"]
                     fit_bundle, res = fit_params_multi_dk(
                         datasets,
                         p_scan,
-                        global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+                        global_keys=dk_global_keys,
                         local_keys=[],
                         observable_mode=observable_mode,
                         sigma_dk=SIGMA_DK,
@@ -490,10 +501,18 @@ def run_fit(datasets: list[dict], p0: dict, max_nfev: int, export_root: str):
             enable_timing=ENABLE_TIMING,
         )
     else:
+        raw_dk_mode = observable_mode in {"dk_raw_chi2q", "dk_raw_m_chi2q"}
+        if raw_dk_mode:
+            dk_global_keys = [
+                k for k in FULL_FIT_GLOBAL_KEYS
+                if k not in {"A_obs", "B_obs", "B0_obs", "B1_obs", "K_dk", "B_dk"}
+            ]
+        else:
+            dk_global_keys = [k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"]
         fit_bundle, res = fit_params_multi_dk(
             datasets,
             p_mode,
-            global_keys=[k for k in FULL_FIT_GLOBAL_KEYS if k != "A_obs"] + ["K_dk"],
+            global_keys=dk_global_keys,
             local_keys=[],
             observable_mode=observable_mode,
             sigma_dk=SIGMA_DK,
